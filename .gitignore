@@ -1,4 +1,9 @@
+# Compiled Python Files
 *.py[co]
+
+# Media Files
+src/studies/*/media/
+
 
 # Packages
 *.egg
@@ -14,8 +19,6 @@ develop-eggs
 
 # Log Files
 *.log
-
-# Installer logs
 pip-log.txt
 
 # Unit test / coverage reports
@@ -31,3 +34,6 @@ nosetests.xml
 .pydevproject
 *.komodoproject
 .idea
+
+# Misc
+*.DS_Store
