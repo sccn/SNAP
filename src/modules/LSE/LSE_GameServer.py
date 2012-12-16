@@ -3589,6 +3589,18 @@ class Main(SceneBase):
         self.threatenaway_bonus = 1                             # bonus for threatening away a hostile by means of a warning signal (horn)
         self.reset_penalty = -2                                 # penalty for using the reset button
 
+        # periodic score updates for certain missions
+        self.movetogether_score_drain_period = 60               # period (in seconds) at which score is updated during the move-together mission (countered by reaching a checkpoint in time)
+        self.movetogether_score_drain = -0.5                    # amount of score that is updated at each score update
+        self.aerialguide_score_drain_period = 60                # period (in seconds) at which score is updated during the aerialguide mission (countered by reaching a checkpoint in time)
+        self.aerialguide_score_drain = -0.5                     # amount of score that is updated at each score update
+        self.secureperimeter_score_gain_period = 60             # period (in seconds) at which score is updated during the secure-perimeter mission (countered by making mistakes during the mission)
+        self.secureperimeter_score_gain = 1                     # amount of score that is updated at each score update
+        self.pancam_score_gain_period = 30                      # period (in seconds) at which score is updated during the pan-the-cam mission (countered by failing to report movements)
+        self.pancam_score_gain = 1                              # amount of score that is updated at each score update
+        self.indivdrive_score_drain_period = 60                 # period (in seconds) at which score is updated during the indiv-drive mission (countered by reaching a checkpoint in time)
+        self.indivdrive_score_drain = -0.5                      # amount of score that is updated at each score update
+
         # dynamic game state
         self.scorelog = []                                      # the score log file (shared between multiple instances of ScoreCounter)
         self.clients = []                                       # instances of ClientGame; wraps and proxies the remote client session
@@ -3920,7 +3932,8 @@ class Main(SceneBase):
             lulldisplay.destroy()
             self.marker('Experiment Control/Sequence/Lull Ends/%s' % lulltype)
         self.marker('Experiment Control/Sequence/Block Ends/%i' % b)
-        
+
+
     @livecoding
     def play_indiv_drive_watch(self,controlscheme):
         """
@@ -3937,6 +3950,8 @@ class Main(SceneBase):
             self.clients[self.vehicle_idx].viewport_instructions.submit("Your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
             self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
             self.sleep(5)
+            # set up periodic score update
+            taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]])
             # add checkpoint gizmo
             self.checkpoint_new(self.vehicle_idx,oncamera=True,throughwalls=True)
             # wait until the checkpoint has been reached
@@ -3955,6 +3970,7 @@ class Main(SceneBase):
         finally:
             # cleanup
             self.checkpoint_remove()
+            taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
     def play_indiv_pan_watch(self,controlscheme):
@@ -3973,6 +3989,9 @@ class Main(SceneBase):
             self.clients[self.panning_idx].viewport_instructions.submit("During this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
             self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
             self.sleep(5)
+            # set up periodic score update
+            taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]])
+            # enter main loop
             duration = random.uniform(self.panwatch_duration[0],self.panwatch_duration[1])
             tEnd = time.time() + duration
             while time.time() < tEnd:
@@ -3983,6 +4002,7 @@ class Main(SceneBase):
         finally:
             # cleanup
             self.destroy_wanderers()
+            taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
     def play_coop_movetogether(self):
@@ -4000,6 +4020,8 @@ class Main(SceneBase):
             self.broadcast_message('Move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
             self.broadcast_message('You have %i minutes to make it through the next %i checkpoints.' % (self.checkpoint_timeout,self.checkpoint_count))
             self.sleep(5)
+            # set up periodic score update
+            taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]])
             # show gizmo on all clients
             self.checkpoint_new([0,1], oncamera=True,throughwalls=True)
             # wait until the checkpoint has been reached
@@ -4027,6 +4049,7 @@ class Main(SceneBase):
         finally:
             # cleanup
             self.checkpoint_remove()
+            taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
     def play_coop_aerialguide(self):
@@ -4047,6 +4070,8 @@ class Main(SceneBase):
             self.clients[self.aerial_idx].viewport_instructions.submit('The next point is marked on the map with a star. Ensure that the other player avoids contact with hostile entities.')
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
+            # set up periodic score update
+            taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]])
             # move the agent up into the air (by gradually ramping up the force)
             t0 = time.time()
             while True:
@@ -4088,6 +4113,7 @@ class Main(SceneBase):
         finally:
             self.checkpoint_remove()        
             self.destroy_wanderers()
+            taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
     def play_secureperimeter(self):
@@ -4107,6 +4133,8 @@ class Main(SceneBase):
             # show instructions
             self.broadcast_message('Secure the perimeter around the truck.')
             self.sleep(5)
+            # set up periodic score update
+            taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]])
             # run for a randomly predetermined time
             duration = random.uniform(self.secure_perimeter_duration[0],self.secure_perimeter_duration[1])
             tEnd = time.time() + duration            
@@ -4172,6 +4200,7 @@ class Main(SceneBase):
             # clean up
             self.destroy_controllables()
             self.destroy_invaders()
+            taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
     def play_lullwait(self):
@@ -4490,6 +4519,13 @@ class Main(SceneBase):
     # =================================
     # === REMOTE GAME-STATE UPDATES ===
     # =================================
+
+    @livecoding
+    def update_score_peridic(self,delta,client_ids,task):
+        """ Periodically update the score for a subset of clients by a given delta. """
+        for c in client_ids:
+            self.clients[c].overall_score.score_event(delta*cl.stress_task.stress_level,nosound=True)
+        return task.again
 
     @livecoding
     def update_score_both(self,delta):
