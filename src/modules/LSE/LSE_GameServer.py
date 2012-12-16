@@ -863,7 +863,8 @@ class QueryPresenter(LatentModule):
                 gain_correct=None,
                 loss_skipped=None,
                 loss_missed=None,
-                focused=True                 # whether this query belongs to an event that was supposed to be focused (otherwise no score consequences)
+                focused=True,                # whether this query belongs to an event that was supposed to be focused (otherwise no score consequences)
+                no_queryprefix=False         # whether to disable the query prefix (if any)
                 ):
         """ The internal query-submission function that does the actual work. """
 
@@ -898,7 +899,7 @@ class QueryPresenter(LatentModule):
             self._locked_until = time.time()+lock_duration
             funcs = self.presenterfuncs[querydomain]
             for f in funcs:
-                f(self.default_query_prefix + query,lockduration=lock_duration)
+                f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration)
             self.marker('Experiment Control/Task/Queries/Issue-%s/{identifier:%i}, Participant/ID/%i' % ('Focused' if focused else 'Nonfocused',query_id,self.client_idx))
             if focused:
                 # watch for a response event
@@ -928,7 +929,8 @@ class QueryPresenter(LatentModule):
             self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
             self.scorecounters[scoredomain].score_event(loss_incorrect)
         # clear the respective presenter
-        self.clearfuncs[querydomain]()
+        for f in self.clearfuncs[querydomain]:
+            f()
 
     @livecoding
     def on_timeout(self,loss_missed,query_id,scoredomain,querydomain):
@@ -937,8 +939,8 @@ class QueryPresenter(LatentModule):
         self.scorecounters[scoredomain].score_event(loss_missed)
         rpyc.async(self.stimpresenter.sound)(self.miss_sound,self.miss_volume,block=False)
         # clear the respective presenter
-        self.clearfuncs[querydomain]()
-
+        for f in self.clearfuncs[querydomain]:
+            f()
 
 
 class AttentionSetManager(LatentModule):
@@ -1597,7 +1599,8 @@ class CommTask(LatentModule):
                             loss_incorrect = self.loss_incorrect,
                             gain_correct = self.gain_correct,
                             loss_skipped = self.loss_skipped,
-                            loss_missed = self.loss_missed)
+                            loss_missed = self.loss_missed,
+                            no_queryprefix = True)
                         self.num_question += 1
                         # wait until we issue the next event...
                         self.sleep(max(self.message_interval(),self.response_timeout+self.post_timeout_silence()))
@@ -3532,7 +3535,7 @@ class Main(SceneBase):
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
         
         # mission mix
-        self.lull_mission_types = ['lull-wait']                                 # possible lull missions (appear between any two blocks)
+        self.lull_mission_types = ['lull-wait','lull-deep']     # possible lull missions (appear between any two blocks)
         self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
         self.indiv_mission_types = ['indiv-drive/watch','indiv-watch/drive','indiv-pan/watch','indiv-watch/pan'] # possible indiv missions
         self.fraction_coop_per_block = (0.25,0.75)              # permitted fraction of co-op missions per block
@@ -4031,7 +4034,9 @@ class Main(SceneBase):
             self.marker('Experiment Control/Sequence/Lull Begins/%s' % lulltype)
             if lulltype == 'lull-wait':
                 self.play_lullwait()
-            else:                    
+            elif lulltype == 'lull-deep':
+                self.play_lulldeep()
+            else:
                 self.write('This lull mission type (' + lulltype + ') has not yet been implemented.',5)
             lulldisplay.destroy()
             self.marker('Experiment Control/Sequence/Lull Ends/%s' % lulltype)
@@ -4051,8 +4056,8 @@ class Main(SceneBase):
             self.reset_control_scheme(controlscheme)
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
-            self.clients[self.vehicle_idx].viewport_instructions.submit("Your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
-            self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
+            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
+            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", during this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
@@ -4092,8 +4097,8 @@ class Main(SceneBase):
             self.accept(accept_message, lambda: self.on_report(self.panning_idx))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
-            self.clients[self.panning_idx].viewport_instructions.submit("During this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
-            self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
+            self.clients[self.panning_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", during this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
+            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", during this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]], appendTask=True)
@@ -4207,8 +4212,8 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
             self.reset_control_scheme(['vehicle','vehicle'])
             # show the instructions                    
-            self.broadcast_message('Move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
-            self.broadcast_message('You have %i minutes to make it through the next %i checkpoints.' % (self.checkpoint_timeout,self.checkpoint_count))
+            self.broadcast_message('move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
+            self.broadcast_message('you have %i minutes to make it through the next %i checkpoints.' % (self.checkpoint_timeout,self.checkpoint_count), no_callsign=True)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
@@ -4226,14 +4231,14 @@ class Main(SceneBase):
                     distance = (self.agents[0].getPos(self.city) - self.agents[1].getPos(self.city)).length() 
                     if  distance > self.staytogether_max_distance:
                         self.marker('Experiment Control/Task/Hints/Agents Stay Together')
-                        self.broadcast_message('Your agents need to stay together!')
+                        self.broadcast_message('your vehicles need to stay together!')
                         self.update_score_both(self.staytogether_penalty)
                         self.sleep(5)
                     # check again in a second
                     self.sleep(1)
                 # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
-                self.broadcast_message('You have successfully reached the checkpoint!')
+                self.broadcast_message('you have successfully reached the checkpoint!')
                 self.update_score_both(self.checkpoint_reach_bonus)
                 self.sleep(3)
         finally:
@@ -4255,8 +4260,8 @@ class Main(SceneBase):
             self.clients[self.vehicle_idx].toggle_satmap(False)
             self.clients[self.aerial_idx].toggle_satmap(True)
             # display instructions for everyone
-            self.clients[self.vehicle_idx].viewport_instructions.submit('The other player will guide you through the map from an aerial viewpoint.')
-            self.clients[self.aerial_idx].viewport_instructions.submit('You now hove an aerial perspective -- guide the other player through a sequence of checkpoints.')
+            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', the other player will guide you through the map from an aerial viewpoint.')
+            self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', you now hove an aerial perspective -- guide the other player through a sequence of checkpoints.')
             self.clients[self.aerial_idx].viewport_instructions.submit('The next point is marked on the map with a star. Ensure that the other player avoids contact with hostile entities.')
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
@@ -4289,15 +4294,15 @@ class Main(SceneBase):
                         a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+2) # the agent's head is not on ground level
                         if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_fov=self.hostile_field_of_view) is not None:
                             self.marker('Experiment Control/Task/Hint/Spotted By Hostile Wanderer')
-                            self.clients[self.vehicle_idx].viewport_instructions.submit('You have been spotted by a foreign drone!')
-                            self.clients[self.aerial_idx].viewport_instructions.submit('Your partner has been spotted by a foreign drone!')
+                            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', you have been spotted by a foreign drone!')
+                            self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', your partner has been spotted by a foreign drone!')
                             self.update_score_both(self.spotted_penalty)
                             self.sleep(5)
                     # check again shortly
                     self.sleep(0.25)
                 # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
-                self.broadcast_message('You have successfully reached the checkpoint!')
+                self.broadcast_message('you have successfully reached the checkpoint!')
                 self.update_score_both(self.checkpoint_reach_bonus)
                 self.sleep(3)
         finally:
@@ -4321,7 +4326,7 @@ class Main(SceneBase):
             self.create_invaders(self.invader_count)
             self.create_controllables()
             # show instructions
-            self.broadcast_message('Secure the perimeter around the truck.')
+            self.broadcast_message('secure the perimeter around the truck.')
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]], appendTask=True)
@@ -4338,7 +4343,7 @@ class Main(SceneBase):
                     a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
                     if line_of_sight(self.physics, a_pos, self.truck_pos, a.vel, src_fov=self.hostile_field_of_view) is not None:
                         self.marker('Experiment Control/Task/Hint/Truck Was Spotted')
-                        self.broadcast_message('The truck is in a dangerous situation!')
+                        self.broadcast_message('the truck is in a dangerous situation!')
                         self.update_score_both(self.danger_penalty)
                         self.sleep(3)
                                                                  
@@ -4351,8 +4356,8 @@ class Main(SceneBase):
                             a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
                         if los is not None:
                             if los == "front" and (not a.mode == "retreating"):
-                                self.clients[k].viewport_instructions.submit('You have fended off an intruder!')
-                                self.clients[1-k].viewport_instructions.submit('Your partner has fended off an intruder!')
+                                self.clients[k].viewport_instructions.submit(self.clients[k].id + ', you have fended off an intruder!')
+                                self.clients[1-k].viewport_instructions.submit(self.clients[1-k].id + ', your partner has fended off an intruder!')
                                 a.enter_retreat(v.getPos(self.city))
                                 self.update_score_both(self.chaseaway_bonus)
                                 self.sleep(1)
@@ -4365,7 +4370,7 @@ class Main(SceneBase):
                             a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
                         if los is not None:
                             if los == "front" and (not a.mode == "retreating"):
-                                self.broadcast_message('One of your guards has fended off an intruder!')
+                                self.broadcast_message('one of your guards has fended off an intruder!')
                                 a.enter_retreat(v.getPos(self.city))
                                 self.update_score_both(self.chaseaway_bonus)
                                 self.sleep(1)
@@ -4376,15 +4381,15 @@ class Main(SceneBase):
                             a_pos,v.getPos(self.city),a.vel,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),
                             src_fov=self.hostile_field_of_view,dst_fov=self.friendly_field_of_view) == "behind":
                             self.marker('Experiment Control/Task/Hint/Spotted From Behind')
-                            self.clients[k].viewport_instructions.submit('Your robot was spotted from behind!')
-                            self.clients[1-k].viewport_instructions.submit('Your partner''s robot was spotted from behind!')
+                            self.clients[k].viewport_instructions.submit(self.clients[k].id + ', your robot was spotted from behind!')
+                            self.clients[1-k].viewport_instructions.submit(self.clients[1-k].id + ', your partner''s robot was spotted from behind!')
                             self.update_score_both(self.unfortunate_spotting_penalty)
                             self.sleep(3)
                             
                 # update policy shortly
                 self.sleep(0.25)
     
-            self.broadcast_message('You have completed the perimeter mission!')
+            self.broadcast_message('you have completed the perimeter mission!')
             self.update_score_both(self.perimeter_finish_bonus)
         finally:
             # clean up
@@ -4400,8 +4405,26 @@ class Main(SceneBase):
         for cl in self.clients:
             cl.toggle_satmap(True)
         self.reset_control_scheme(['static','static'])
+        self.broadcast_message('there are no outstanding missions for the next few minutes. Please occupy yourself with the side tasks.')
+        self.sleep(5)
         self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
 
+    @livecoding
+    def play_lulldeep(self):
+        """
+        A mission in which both subjects rest for X minutes and have nothing to do but watch the warning lightr.
+        """
+        try:
+            for cl in self.clients:
+                cl.toggle_satmap(True)
+                cl.attention_manager.mask_regions([])
+            self.reset_control_scheme(['static','static'])
+            self.broadcast_message('there is nothing to do for the next few minutes except for watching the red warning light.')
+            self.sleep(5)
+            self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
+        finally:
+            for cl in self.clients:
+                cl.attention_manager.mask_regions(self.available_attention_set)
 
     # ====================
     # === PHYSICS CODE ===
@@ -4726,11 +4749,11 @@ class Main(SceneBase):
             cl.overall_score.score_event(delta*cl.stress_task.stress_level)
 
     @livecoding
-    def broadcast_message(self,msg):
+    def broadcast_message(self,msg,no_callsign=False):
         """ Send a text message to both clients. """
         self.message_presenter.submit(msg)
         for cl in self.clients:
-            cl.viewport_instructions.submit(msg)
+            cl.viewport_instructions.submit(('' if no_callsign else cl.id + ', ') + msg)
         self.marker('Stimulus/Visual/Language/Sentence/%s, Participant/ID/both' % msg)
 
     @livecoding
@@ -4834,6 +4857,7 @@ class Main(SceneBase):
         v = self.agents[c]
         v_pos = v.getPos(self.city)
         v_vec = v.getMat(self.city).getRow3(1)
+        v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
         # for each agent...
         for a in self.wanderers:
             a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
