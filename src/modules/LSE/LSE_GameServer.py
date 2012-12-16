@@ -1038,6 +1038,7 @@ class AttentionSetManager(LatentModule):
         """ Apply a mask of possible active regions. """
         if mask is None:
             return
+        self.available_subset = mask
         for r in self.region_names:
             if r in mask:
                 if r in self.active_regions:
@@ -1049,7 +1050,9 @@ class AttentionSetManager(LatentModule):
             else:
                 # not visible
                 self.indicators[r][2]()
-        self.available_subset = mask
+                # if currently active, re-assign attention distribution
+                if r in self.active_regions:
+                    self.resume()
 
 # ===============================
 # === SUBTASK IMPLEMENTATIONS ===
