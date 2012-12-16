@@ -4060,6 +4060,7 @@ class Main(SceneBase):
                 v = self.agents[self.panning_idx]
                 v_pos = v.getPos(self.city)
                 v_vec = v.getMat(self.city).getRow3(1)
+                v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
                 c = self.panning_idx
                 now = time.time()
                 # for each agent...
