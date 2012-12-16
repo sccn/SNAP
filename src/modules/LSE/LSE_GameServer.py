@@ -4869,10 +4869,10 @@ class Main(SceneBase):
                     self.clients[c].overall_score.score_event(self.pancam_double_loss)
                 else:
                     # valid report
-                    self.clients[client_idx].overall_score.score_event(self.pancam_spotted_gain)
+                    self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
                 a.last_report_time[c] = now
         if not report_valid:
-            self.clients[client_idx].overall_score.score_event(self.pancam_false_loss)
+            self.clients[c].overall_score.score_event(self.pancam_false_loss)
 
     def client_ack(self):
         """ callback when a client has acknowledged something (only during game startup). """
