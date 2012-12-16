@@ -1,0 +1,12 @@
+# use glob syntax.
+syntax: glob
+
+# extra media files from studies are not included
+src/studies/*/media/
+
+# auto-generated files
+*.pyc
+*.log
+*.DS_Store
+.directory
+.pydevproject

@@ -1,0 +1,7 @@
+This is a sample study.
+It contains a few .cfg files which are various configurations for the Sample1.py module.
+In particular, the extended_run.cfg configures Sample1 to have an extended number of trials.
+
+Also, there are several engine configuration files for different display modes (windowed.prc and fullscreen.prc).
+
+The shortcuts are examples of shortcuts that one might put on the experiment machine's desktop to make an experiment configuration accessible to technicians.

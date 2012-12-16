@@ -1,0 +1,86 @@
+=== What do you get with SNAP? ===
+
+SNAP is an experiment scripting environment that consists essentially of:
+1. The file launcher.py, which is the main executable.
+   This file loads, unloads, starts, stops and executes any user-created modules and can be configured either through
+   command-line parameters (for desktop shortcuts which start a particular experiment run), or via remote commands
+   (can be controlled for example via the LabRecorder program that comes with the lab streaming layer distribution),
+   or directly in the source file at the beginning (the "poor man's approach" to pre-configuring experiment runs, but 
+   okay for testing).
+
+2. A collection of user-created modules in the modules/ folder; each of these corresponds usually to one experiment design.
+   When you develop a new experiment design, you usually make a new module (or copy and modify an existing one).
+   A good example of a basic module that gives you an idea of what working with SNAP feels like is modules/Sample1.py.
+   The basic features used in these examples and some of the simpler modules go a long way, but some other existing modules
+   use much more advanced features. The modules are implemented in Python, which is a quite easy-to-learn language (it was
+   created specifically with beginners in mind and is one of the 3 most popular general-purpose scripting languages today).
+
+3. For each study, a directory with configuration files for one or more different runs (e.g. blocks) of your experiment.
+   The .cfg files in studies/Sample/ (basic_run, extended_run) are some simple examples. The idea is that your module may have 
+   parameters (like the number of trials or whether scoring is enabled), and you may want to pre-define a few presets of parameters 
+   that you go through during the experiments (e.g., one preset with few trials for pre-training, one preset with the full number of 
+   trials for the main block). These directories may also contain additional files specific to your study (e.g., media,
+   notes, shortcuts, ... to keep the main distribution clutter-free). Basically, the studies folder is each study's private
+   litterbox of very experiment-specific files.
+
+4. The "framework" of features that are available for use in the modules (e.g. playing a sound, displaying a picture, sending
+   a marker). The framework consists of several modules (e.g., basicstimuli.py which contains built-in stimulus-presentation functions  
+   that are always available or latentmodule.py which defines functions for waiting for user input or other conditions). There are 
+   several extra modules that not everyone will use, such as speech.py for text-to-speech. Some more advanced facilities are grouped
+   into the packages ui_elements, controllers, and subtasks. These define more complex objects that allow to quickly prototype certain
+   complex (and specific) features. Some of the most complicated modules (DAS1b.py and  MBF2_B.py) make extensive use of these.
+   The framework is thoroughly documented, so the best way to see what's available is to glance through the files.
+   
+5. The underlying game engine Panda3d, which provides a "cushion" of 2d/3d rendering, audio playback, input, physics, basic AI, 
+   and some other basic features like timers, threads, IO, and so on. Whenever something is not implemented in the SNAP framework
+   itself, chances are that it can be accomplished by what is provided by Panda3d. This engine has excellent documentation, which can
+   be found at http://www.panda3d.org/. When looking it up, make sure that you are reading the docs for the version of Panda that is 
+   installed on your computer (since there may be features documented that are not yet available on your machine).
+   
+6. The underlying Python language and runtime, which provides a huge array of general-purpose features (like networking, file IO,
+   data structures, and so on). There are 1000s of modules and packages for Python that allow you to obtain or implement virtually
+   any functionality that is not provided by either the SNAP framework or the Panda3d engine. If for some reason some feature is 
+   really not implemented already, one can also program it in C or C++ and generate a Python wrapper module (but this will usually take a
+   seasoned programmer). There is a distribution of Python that includes 100s of useful packages (called Python(x,y), which can be installed
+   on top of Panda3d (provided that the right versions of both are used)) to get everything out of the box. Most of it is included 
+   with our custom Panda3d-forSNAP installer. The webpage for Python (that points to the very extensive online documentation) is http://www.python.org/.
+   Python(x,y) and points to the package documentations can be found at http://code.google.com/p/pythonxy/.
+   
+ 
+=== How to learn it? ===
+
+The best way to learn SNAP is when you have a concrete experiment design in mind that you need to get implemented. First, take a look at the 
+sample modules (like modules/Sample1.py) to see the overall gist of what a module looks like and what the syntax generally looks like. Your
+module will similar to these, but likely more complicated -- it will probably need more Python language constructs and some framework features
+not exercised in these samples. 
+
+Make sure that you can run the Sample1 module. You can pass to the launcher.py the command line arguments --module Sample1 --autolaunch 1
+to override whatever is written in the .py file itself. While development works best in windowed mode, you can tell the launcher to start it in 
+fullscreen mode by making a modified copy of defaultsettings.prc (say you name it mysettings.prc) and passing --engineconfig mysettings.prc at 
+startup; see also http://www.panda3d.org/manual/index.php/Configuring_Panda3D for more parameters that you can control there). While the launcher  
+runs, you can generally start and stop modules with the F1 and F2 keys (and terminate the launcher with the Escape key).
+
+You now want to make a copy of the module that you can edit. This is the right time to thoroughly read the Python tutorial at 
+http://docs.python.org/release/2.7.3/tutorial/index.html. You need to know the basic language syntax to be able to make your way through SNAP, 
+but luckily Python's syntax is very intuitive -- you'll know it within 3 hours.
+
+With some Python knowledge under your belt, you should now start modifying the module and verify that you can change its behavior 
+(e.g. add extra loops and so on). Once that's established, it is time to get serious about getting the experiment design implemented -- 
+so you should now read both the latentmodule.py file (which is the base class from which your are currently deriving that gives you commands 
+like waiting for the user's response or sleeping for an interval), as well as the basicstimuli.py file (which gives you all the basic drawing 
+and audio commands that come with SNAP out of the box), and start using them as you need them. You will also frequently consult the Python 
+library and package reference, especially when you are processing text files, work with random numbers, need data structures, and so on.
+
+If you find that these files don't give you the features that you need, the next thing to read is the Panda3d documentation, since if you find 
+what you need there, it will work out of the box. You can find packages elsewhere on the internet for virtually any task and drop them right 
+into your module, but especially when you need advanced graphics features, you basically must go through Panda since you cannot mix different 
+graphics frameworks at the same time (like pygame or pyopengl). Anything else (audio, input, simulation, etc) can also be built with third-party 
+components without conflicts. Also, it is generally harder to mix two comprehensive frameworks than it is to mix isolated utilities and components  
+from different parties, so don't try to bring in too many complex frameworks if you can find a simple module to get the same job done.
+
+Also keep in mind that anything that is already pre-installed with Python, Panda, or Python(x,y) if you're using it will be much easier to use 
+(and transport to another computer) than if you need to first install a new package on the target computer.
+
+To become a "true master of experiment scripting", there is no better way than gaining a lot of experience by writing a lot of scripts that push the 
+limits of what you already know. There are also a few good books on Python and other relevant technologies.
+

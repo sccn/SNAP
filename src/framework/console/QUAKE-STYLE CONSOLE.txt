@@ -1,0 +1,2 @@
+This console is not included with the release due to license uncertainty. Note that with a properly configured Eclipse IDE, there is no need for an interactive console in the framework. You may however download it from the following link and extract the .py files to this directory:
+http://www.nouser.org/WD/Development/python/panda3d/projects/interactivePandaConsole/interactiveConsole-v2.2.zip
