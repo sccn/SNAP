@@ -3456,8 +3456,8 @@ class Main(SceneBase):
         
         # mission mix
         self.lull_mission_types = ['lull-wait']                                 # possible lull missions (appear between any two blocks)
-        self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
-        self.indiv_mission_types = ['indiv-drive-watch-split']                  # possible indiv missions 
+        self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
+        self.indiv_mission_types = ['indiv-drive/watch','indiv-watch/drive','indiv-pan/watch','indiv-watch/pan'] # possible indiv missions
         self.fraction_coop_per_block = (0.3,0.7)                # permitted fraction of co-op missions per block
         self.fraction_coop_total = 0.4                          # overall fraction of coop missions out of block missions
         self.max_repeat_fraction = 0.5                          # maximum fraction of successive mission pairs that consist of the same mission type
@@ -3550,6 +3550,7 @@ class Main(SceneBase):
 
         # wandering agent parameters
         self.wanderer_count = 10                                # number of hostile wanderers in some of the checkpoint missions
+        self.pan_wanderer_count = 20                            # number of hostile wanderers in the pan-the-cam mission
         self.hostile_minimum_distance = 30.0                    # closer than this and you are spotted
         self.hostile_field_of_view = 90.0                       # the field of view of the agents
         self.hostile_agent_head_height = 2                      # in meters, for accurate line-of-sight checks
@@ -3569,6 +3570,7 @@ class Main(SceneBase):
         self.min_reset_interval = 3                             # minimum interval between agent position resets, in seconds
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
+        self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
 
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = 20                              # number of checkpoints to go through
@@ -3676,6 +3678,7 @@ class Main(SceneBase):
     @livecoding
     def init_block_permutation(self):
         """ Generates a permutation of blocks for the current experiment, according to the value of self.permutation (= the permutation number). """
+        print 'Generating block permutations...'
         self.nonlull_mission_types = self.coop_mission_types + self.indiv_mission_types
         self.mission_types = self.lull_mission_types + self.nonlull_mission_types
         self.num_missions_nonlull = int(self.num_blocks * (self.num_missions_per_block[0]+self.num_missions_per_block[1]) / 2.0) 
@@ -3720,13 +3723,13 @@ class Main(SceneBase):
                     okay = False
                     break
                 # extra constraint to prevent successive identical missions (requires more mission variety before it can be enabled)
-                #num_dups = 0
-                #for k in range(len(self.mission_order)-1):
-                #    # avoid the same mission twice in a row
-                #    if self.mission_order[k] == self.mission_order[k+1]:
-                #        num_dups = num_dups+1
-                #if num_dups * 1.0 / (len(self.mission_order)-1) > self.max_repeat_fraction:
-                #    okay = False  
+                num_dups = 0
+                for k in range(len(self.mission_order)-1):
+                    # avoid the same mission twice in a row
+                    if self.mission_order[k] == self.mission_order[k+1]:
+                        num_dups = num_dups+1
+                if num_dups * 1.0 / (len(self.mission_order)-1) > self.max_repeat_fraction:
+                   okay = False
         self.block_missions = []
         for idxrange in self.block_indices:
             self.block_missions.append([self.mission_order[k] for k in idxrange])
@@ -3735,7 +3738,8 @@ class Main(SceneBase):
         self.lull_order = self.lull_mission_types * (1+(self.num_blocks-1) / len(self.lull_mission_types))
         while len(self.lull_order) > (self.num_blocks-1):
             self.lull_order.pop(random.choice(range(len(self.lull_order))))
-        random.shuffle(self.lull_order)        
+        random.shuffle(self.lull_order)
+        print 'done.'
 
     @livecoding
     def wait_for_humans(self):
@@ -3838,7 +3842,7 @@ class Main(SceneBase):
     @livecoding
     def init_subtasks(self):
         """ Initialize the per-client and global subtasks. """
-        self.scorelog = open('logs\\LSE-scoretable-%s.txt' % time.asctime().replace(':','_'),'a')
+        self.scorelog = open('logs\\LSE-scoretable-%s.log' % time.asctime().replace(':','_'),'a')
         for cl in self.clients:
             cl.init_subtasks()
         self.init_global_subtasks()
@@ -3884,12 +3888,18 @@ class Main(SceneBase):
             # play the next block mission
             missiontype = self.block_missions[b][m] if not self.mission_override else self.mission_override
             self.marker('Experiment Control/Sequence/Mission Begins/%s' % missiontype)
-            if missiontype == 'indiv-drive-watch-split':
-                self.play_indiv_drive_watch_split()
+            if missiontype == 'indiv-drive/watch':
+                self.play_indiv_drive_watch(['vehicle','static'])
+            elif missiontype == 'indiv-watch/drive':
+                self.play_indiv_drive_watch(['static','vehicle'])
+            if missiontype == 'indiv-pan/watch':
+                self.play_indiv_drive_watch(['panning','static'])
+            elif missiontype == 'indiv-watch/pan':
+                self.play_indiv_drive_watch(['static','panning'])
             elif missiontype == 'coop-movetogether':
-                self.play_coop_movetogether()                    
+                self.play_coop_movetogether()
             elif missiontype == 'coop-aerialguide':
-                self.play_coop_aerialguide()                    
+                self.play_coop_aerialguide()
             elif missiontype == 'coop-secureperimeter':
                 self.play_secureperimeter()
             else:
@@ -3912,7 +3922,7 @@ class Main(SceneBase):
         self.marker('Experiment Control/Sequence/Block Ends/%i' % b)
         
     @livecoding
-    def play_indiv_drive_watch_split(self):
+    def play_indiv_drive_watch(self,controlscheme):
         """
         A mission in which one subject has the checkpoint-drive/reporting task while the other is static and
         interacts only with the satellite maps and the comm displays. Both have a satellite map. 
@@ -3921,11 +3931,11 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(['vehicle','static'])
+            self.reset_control_scheme(controlscheme)
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
             self.clients[self.vehicle_idx].viewport_instructions.submit("Your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
-            self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
+            self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
             self.sleep(5)
             # add checkpoint gizmo
             self.checkpoint_new(self.vehicle_idx,oncamera=True,throughwalls=True)
@@ -3945,6 +3955,34 @@ class Main(SceneBase):
         finally:
             # cleanup
             self.checkpoint_remove()
+
+    @livecoding
+    def play_indiv_pan_watch(self,controlscheme):
+        """
+        A mission in which one subject has the checkpoint-drive/reporting task while the other is static and
+        interacts only with the satellite maps and the comm displays. Both have a satellite map.
+        """
+        # set up UI and control schemes
+        try:
+            for cl in self.clients:
+                cl.toggle_satmap(True)
+            self.reset_control_scheme(controlscheme)
+            self.create_wanderers(self.pan_wanderer_count)
+            # show instructions
+            self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
+            self.clients[self.panning_idx].viewport_instructions.submit("During this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
+            self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
+            self.sleep(5)
+            duration = random.uniform(self.panwatch_duration[0],self.panwatch_duration[1])
+            tEnd = time.time() + duration
+            while time.time() < tEnd:
+                # update which agent is in field of view
+                # check
+                self.sleep(0.25)
+
+        finally:
+            # cleanup
+            self.destroy_wanderers()
 
     @livecoding
     def play_coop_movetogether(self):
@@ -4318,6 +4356,18 @@ class Main(SceneBase):
                 self.vehicles[client].setSteeringValue(0, 1)
                 self.vehicles[client].setBrake(self.brake_force, 0)
                 self.vehicles[client].setBrake(self.brake_force, 1)
+            elif self.agent_control[client] == 'panning':
+                # engage brakes and disable steering
+                self.vehicles[client].applyEngineForce(0, 2)
+                self.vehicles[client].applyEngineForce(0, 3)
+                self.vehicles[client].setSteeringValue(0, 0)
+                self.vehicles[client].setSteeringValue(0, 1)
+                self.vehicles[client].setBrake(self.brake_force, 0)
+                self.vehicles[client].setBrake(self.brake_force, 1)
+                # add pan control
+                mat = self.agents[num].getParent().getMat(render)
+                mat *= Mat4.rotateMat(x,mat.getRow3(2))
+                self.agents[num].getParent().setMat(render,mat)
 
         # extra aerial control logic (fly-by-wire)
         if 'aerial' in self.agent_control:
@@ -4691,6 +4741,7 @@ class Main(SceneBase):
         self.vehicle_idx = self.agent_control.index('vehicle') if 'vehicle' in self.agent_control else None
         self.aerial_idx = self.agent_control.index('aerial') if 'aerial' in self.agent_control else None
         self.static_idx = self.agent_control.index('static') if 'static' in self.agent_control else None
+        self.panning_idx = self.agent_control.index('panning') if 'panning' in self.agent_control else None
     
     @livecoding    
     def checkpoint_new(self,
