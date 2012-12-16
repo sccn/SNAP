@@ -311,10 +311,13 @@ def generate_positions(scenegraph,                  # the scene graph for which 
 
             # check if box constaints satisfied
             if within_box is not None:
+                accept = True
                 for axis in [0,1,2]:
                     if pos[axis] < within_box[axis][0] or pos[axis] > within_box[axis][1]:
                         accept = False
                         break
+                if not accept:
+                    continue
 
             # check if the point is invisible from each point in the the given list
             if invisible_from is not None:
@@ -769,6 +772,7 @@ class QueryPresenter(LatentModule):
     def __init__(self,
                  # output environment
                  presenterfuncs,                            # where to present the queries: this is a map of the form {'querydomain',presenterfunc, 'querydomain',presenterfunc, ...}
+                 clearfuncs,                                # functions to clear the respective presenters
                  # which covers multiple domains (e.g., auditory and visual modalities and associated presenters)
                  # the presenterfuncs are MessagePresenter.submit()-like functions
                  scorecounters,                             # where to add score: this is a map of the form {'scoredomain',scorecounter, 'scoredomain',scorecounter, ...}
@@ -789,6 +793,7 @@ class QueryPresenter(LatentModule):
                  # response event parameters
                  default_skip_response = 'skip',            # response event to indicate that a probe should be skipped
                  default_event_prefix = '',                 # the prefix that is assumed to come before any event
+                 default_query_prefix = '',                 # the prefix that is assumed to come before any query
 
                  # task-specific sounds
                  miss_sound = 'fail-buzzer-02.wav',         # sound to play when the subject misses a query
@@ -798,6 +803,7 @@ class QueryPresenter(LatentModule):
         LatentModule.__init__(self)
         self.stimpresenter = stimpresenter if stimpresenter is not None else self
         self.presenterfuncs = presenterfuncs
+        self.clearfuncs = clearfuncs
         self.scorecounters = scorecounters
 
         self.default_response_timeout = default_response_timeout
@@ -809,6 +815,7 @@ class QueryPresenter(LatentModule):
         self.default_loss_missed = default_loss_missed
         self.default_skip_response = default_skip_response
         self.default_event_prefix = default_event_prefix
+        self.default_query_prefix = default_query_prefix
         self.client_idx = client_idx
         self.miss_sound = miss_sound
         self.miss_volume = miss_volume
@@ -891,7 +898,7 @@ class QueryPresenter(LatentModule):
             self._locked_until = time.time()+lock_duration
             funcs = self.presenterfuncs[querydomain]
             for f in funcs:
-                f(query,lockduration=lock_duration)
+                f(self.default_query_prefix + query,lockduration=lock_duration)
             self.marker('Experiment Control/Task/Queries/Issue-%s/{identifier:%i}, Participant/ID/%i' % ('Focused' if focused else 'Nonfocused',query_id,self.client_idx))
             if focused:
                 # watch for a response event
@@ -901,12 +908,12 @@ class QueryPresenter(LatentModule):
                 watcher.watch_for(
                     eventtype=event_list,
                     handler=(lambda eventtype,timepoint: self.on_response(
-                        eventtype,expected_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain)),
+                        eventtype,expected_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain,querydomain)),
                     handleduration=response_timeout,
-                    timeouthandler=lambda: self.on_timeout(loss_missed,query_id,scoredomain))
+                    timeouthandler=lambda: self.on_timeout(loss_missed,query_id,scoredomain,querydomain))
 
     @livecoding
-    def on_response(self,actual_response,correct_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain):
+    def on_response(self,actual_response,correct_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain,querydomain):
         """ Function that is called when a subject makes a timely response to a query."""
         if actual_response == correct_response:
             self.marker('Experiment Control/Task/Correct Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
@@ -920,13 +927,17 @@ class QueryPresenter(LatentModule):
         else:
             self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
             self.scorecounters[scoredomain].score_event(loss_incorrect)
+        # clear the respective presenter
+        self.clearfuncs[querydomain]()
 
     @livecoding
-    def on_timeout(self,loss_missed,query_id,scoredomain):
+    def on_timeout(self,loss_missed,query_id,scoredomain,querydomain):
         """ Function that is called when a subset fails to make a timely response to a query. """
         self.marker('Experiment Control/Task/Missed Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
         self.scorecounters[scoredomain].score_event(loss_missed)
         rpyc.async(self.stimpresenter.sound)(self.miss_sound,self.miss_volume,block=False)
+        # clear the respective presenter
+        self.clearfuncs[querydomain]()
 
 
 
@@ -956,7 +967,11 @@ class AttentionSetManager(LatentModule):
         self.load_distribution = load_distribution
         self.maintenance_duration = maintenance_duration
         self.region_names = self.regions.keys()
-        self.available_subset = available_subset
+        self.available_subset = self.region_names
+        self.active_regions = []                            # currently active regions
+        self.prev_active_regions = []                       # previously active regions
+
+        self.mask_regions(available_subset)                 # apply the region mask
 
     def run(self):
         if self.available_subset is None:
@@ -972,12 +987,12 @@ class AttentionSetManager(LatentModule):
             num_regions = self.load_distribution()
 
             # randomly draw this many active regions from self.regions
-            active_regions = random.sample(set(self.available_subset).intersection(set(self.regions.keys())),min(num_regions,len(self.available_subset)))
-            self.marker('Experiment Control/Task/Attention/Switch To/%s, Participant/ID/%i' % (str(active_regions).replace(',','|'),self.client_idx))
+            self.active_regions = random.sample(set(self.available_subset).intersection(set(self.regions.keys())),min(num_regions,len(self.available_subset)))
+            self.marker('Experiment Control/Task/Attention/Switch To/%s, Participant/ID/%i' % (str(self.active_regions).replace(',','|'),self.client_idx))
 
             # set the focused flag for all focusable objects appropriately
             for regionname in self.region_names:
-                if regionname in active_regions:
+                if regionname in self.active_regions:
                     for focusable in self.regions[regionname]:
                         if type(focusable) is tuple:
                             focusable[1]()
@@ -991,33 +1006,48 @@ class AttentionSetManager(LatentModule):
                             focusable.focused = False
 
             # display the switch instructions in the appropriate instructors
-            if len(active_regions) == 0:
+            if len(self.active_regions) == 0:
                 switch_message = 'From now on, please ignore all side tasks and focus on the main mission.'
             else:
-                switch_message = 'From now on, please focus on ' + active_regions[0]
-                if len(active_regions) > 1:
-                    for r in active_regions[1:]:
+                switch_message = 'From now on, please focus on ' + self.active_regions[0]
+                if len(self.active_regions) > 1:
+                    for r in self.active_regions[1:]:
                         switch_message += ' and ' + r
                 switch_message += '.'
-            for regionname in prev_active_regions:
+            for regionname in self.prev_active_regions:
                 self.instructors[regionname](switch_message)
 
             # update the visibility of the region activity indicators
             try:
-                for regionname in set(prev_active_regions).difference(set(active_regions)):
+                for regionname in set(self.prev_active_regions).difference(set(self.active_regions)):
                     self.indicators[regionname][0]() # disable now unfocused regions
-                for regionname in set(active_regions).difference(set(prev_active_regions)):
+                for regionname in set(self.active_regions).difference(set(self.prev_active_regions)):
                     self.indicators[regionname][1]() # enable now focused regions
             except Exception as e:
                 print e
                 traceback.print_exc()
                 send_marker('Experiment Control/Status/Error/%s' % (str(e),))
 
-            prev_active_regions = active_regions
+            self.prev_active_regions = self.active_regions
 
             self.sleep(self.maintenance_duration())
 
-
+    def mask_regions(self,mask):
+        """ Apply a mask of possible active regions. """
+        if mask is None:
+            return
+        for r in self.region_names:
+            if r in mask:
+                if r in self.active_regions:
+                    # enabled
+                    self.indicators[r][1]()
+                else:
+                    # diabled
+                    self.indicators[r][0]()
+            else:
+                # not visible
+                self.indicators[r][2]()
+        self.available_subset = mask
 
 # ===============================
 # === SUBTASK IMPLEMENTATIONS ===
@@ -2913,7 +2943,8 @@ class ClientGame(SceneBase):
         self.attention_indicator_size = 0.075               # size of the attention indicator lamp (usually in the upper left corner of every widget)
         self.attention_indicator_on = str(ConfigVariableSearchPath('model-path').findFile('icons\\indicator_on.png'))   # on picture (lamp illuminated)
         self.attention_indicator_off = str(ConfigVariableSearchPath('model-path').findFile('icons\\indicator_off.png')) # off picture (lamp off)
-        
+        self.attention_indicator_hidden = str(ConfigVariableSearchPath('model-path').findFile('transparent.png'))         # transparent picture (lamp hidden)
+
         # satellite map parameter
         self.satmap_pos = grid(3,(1,1),(2,5),'topleft')     # position of the satellite map upper left corner (aspect2d coordinates)
         self.agent_satmap_rect  = rect(grid(3,(1,1),(2,5),'topleft',sys='window'),grid(3,(1,1),(3,5),'bottomright',sys='window')) # viewport rectangle that displays the satellite map (normalized window coordinates)
@@ -2942,7 +2973,7 @@ class ClientGame(SceneBase):
 
         # response buttons for satmap task (right outer screen)
         self.right_button_colors = ['red','green','blue','yellow']        # labels for the color buttons
-        self.right_button_directions = ['north','south','east','west']    # labels for the direction buttons
+        self.right_button_directions = ['west','north','south','east']    # labels for the direction buttons
         self.right_button_x_offsets = [grid(3,(1,5)),grid(3,(2,5)),grid(3,(3,5)),grid(3,(4,5))]   # x offsets for the buttons, in aspect2d coordinates
         self.right_button_y_offsets = [grid(3,(),(9,10),ma=0.0125), grid(3,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
         self.right_button_skip_pos = grid(3,(5,5),(5,5))
@@ -2985,7 +3016,9 @@ class ClientGame(SceneBase):
         self.text_comm_task_args = {}                       # arguments for the textual communications task
         self.audio_comm_task_args = {}                      # arguments for the audio communications task
         self.satmap_task_args = {}                          # arguments for the satellite map task
-        self.sound_task_args = {}                           # arguments for the sound task
+        self.sound_task_args = {# diable one of the channels # arguments for the sound task
+                                'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
+                                }
         self.attention_set_args = {}                        # arguments for the attention set management
 
         # --- local gamestate ---
@@ -3119,11 +3152,11 @@ class ClientGame(SceneBase):
             pos=(self.sound_gizmo_pos[0]-self.gizmo_corner_offset,self.sound_gizmo_pos[1]+self.gizmo_corner_offset),
             scale=self.attention_indicator_size))
         # pairs of functions to turn various attention indocators on or off
-        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.submit(self.attention_indicator_off), lambda: self.text_attention_indicator.submit(self.attention_indicator_on)]
-        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.submit(self.attention_indicator_off), lambda: self.vocal_attention_indicator.submit(self.attention_indicator_on)]
-        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.submit(self.attention_indicator_off), lambda: self.sound_attention_indicator.submit(self.attention_indicator_on)]
-        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.submit(self.attention_indicator_off), lambda: self.viewport_attention_indicator.submit(self.attention_indicator_on)]
-        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.submit(self.attention_indicator_off), lambda: self.satmap_attention_indicator.submit(self.attention_indicator_on)]
+        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.submit(self.attention_indicator_off), lambda: self.text_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.submit(self.attention_indicator_off), lambda: self.vocal_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.submit(self.attention_indicator_off), lambda: self.sound_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.submit(self.attention_indicator_off), lambda: self.viewport_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.submit(self.attention_indicator_off), lambda: self.satmap_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
 
     @livecoding
     def init_touch_buttons(self):
@@ -3191,6 +3224,10 @@ class ClientGame(SceneBase):
                               'visual-satmap':[self.satmap_instructions.submit],
                               'visual-text':[self.text_communications_presenter.submit],
                               'auditory':[self.vocal_communications_presenter.submit]},
+            clearfuncs = {'visual-viewport':[self.viewport_instructions.clear],
+                          'visual-satmap':[self.satmap_instructions.clear],
+                          'visual-text':[self.text_communications_presenter.clear],
+                          'auditory':[self.vocal_communications_presenter.clear]},
             scorecounters = {'overall':self.overall_score,
                              'satmap':self.satmap_score,
                              'viewport':self.viewport_score,
@@ -3198,6 +3235,7 @@ class ClientGame(SceneBase):
                              'audiocomm':self.audio_comm_score,
                              'sounds':self.sounds_score},
             default_event_prefix = self.tag+'-',
+            default_query_prefix = self.id+', ',
             stimpresenter = self.remote_stimpresenter,
             client_idx = self.num, **self.query_presenter_args)
 
@@ -3342,7 +3380,11 @@ class ClientGame(SceneBase):
         elif not show and not (self.satmap_viewport is None):
             self.satmap_viewport.destroy()
             self.satmap_viewport = None
-        self.satmap_attention_indicator.submit(self.attention_indicator_off)
+        # also toggle the attention set indicator
+        if show:
+            self.attention_manager.mask_regions(set(self.master.available_attention_set))
+        else:
+            self.attention_manager.mask_regions(set(self.master.available_attention_set).difference(['satellite map']))
 
     @livecoding
     def update_satmap(self,task):
@@ -3583,9 +3625,12 @@ class Main(SceneBase):
         self.aerial_angular_damping = 0.95                      # angular damping (air friction) of aerial vehicle 
         self.aerial_linear_damping = 0.95                       # linear damping (air friction) of aerial vehicle
 
+        # panning control parameters
+        self.pan_speed = 10                                     # speed at which the camera pands
+
         # wandering agent parameters
         self.wanderer_count = 10                                # number of hostile wanderers in some of the checkpoint missions
-        self.pan_wanderer_count = 20                            # number of hostile wanderers in the pan-the-cam mission
+        self.pan_wanderer_count = 10                            # number of hostile wanderers in the pan-the-cam mission
         self.hostile_minimum_distance = 30.0                    # closer than this and you are spotted
         self.hostile_field_of_view = 90.0                       # the field of view of the agents
         self.hostile_agent_head_height = 2                      # in meters, for accurate line-of-sight checks
@@ -4540,7 +4585,9 @@ class Main(SceneBase):
                 self.vehicles[client].setBrake(self.brake_force, 1)
                 # add pan control
                 mat = self.agents[client].getParent().getMat(render)
-                mat *= Mat4.rotateMat(x,mat.getRow3(2))
+                row3 = mat.getRow(3)
+                mat *= Mat4.rotateMat(-y*self.pan_speed,mat.getRow3(2))
+                mat.setRow(3,row3)
                 self.agents[client].getParent().setMat(render,mat)
 
         # extra aerial control logic (fly-by-wire)
