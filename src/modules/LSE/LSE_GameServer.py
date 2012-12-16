@@ -784,7 +784,7 @@ class QueryPresenter(LatentModule):
 
                  # task-specific sounds
                  miss_sound = 'fail-buzzer-02.wav',         # sound to play when the subject misses a query
-                 miss_volume = 0.5,                         # volume of the miss sound
+                 miss_volume = 0.5                          # volume of the miss sound
                  ):
 
         LatentModule.__init__(self)
@@ -811,7 +811,7 @@ class QueryPresenter(LatentModule):
     def submit_question(self,
                         question,  # the question object to submit
                         **kwargs   # other arguments to submit()
-    ):
+                        ):
         """ Submit a question object. This is a convenience function. """
         self.submit(query=question.phrase, expected_response=question.correct_answer, wrong_responses=list(set(question.all_answers) - set([question.correct_answer])),
             query_id=question.identifier, **kwargs)
@@ -849,7 +849,7 @@ class QueryPresenter(LatentModule):
                 loss_skipped=None,
                 loss_missed=None,
                 focused=True                 # whether this query belongs to an event that was supposed to be focused (otherwise no score consequences)
-    ):
+                ):
         """ The internal query-submission function that does the actual work. """
 
         # apply defaults to response codes
@@ -865,7 +865,7 @@ class QueryPresenter(LatentModule):
             lock_duration = self.default_lock_duration
         if response_timeout is None:
             response_timeout = self.default_response_timeout
-            # apply defaults to score aspects
+        # apply defaults to score aspects
         if loss_incorrect is None:
             loss_incorrect= self.default_loss_incorrect
         if gain_correct is None:
@@ -892,8 +892,8 @@ class QueryPresenter(LatentModule):
                 print str(time.time()) + ": now watching for response; timeout is " + str(response_timeout)
                 watcher.watch_for(
                     eventtype=event_list,
-                    handler=lambda eventtype,timepoint: self.on_response(
-                        eventtype,expected_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain),
+                    handler=(lambda eventtype,timepoint: self.on_response(
+                        eventtype,expected_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain)),
                     handleduration=response_timeout,
                     timeouthandler=lambda: self.on_timeout(loss_missed,query_id,scoredomain))
 
@@ -2328,6 +2328,8 @@ class ProbedObjectsTask(LatentModule):
 
 _agent_id_generator = itertools.count(1)   # a generator to assign experiment-wide unique id's to agents (both wanderers, invaders, etc.)
 
+
+
 class WanderingAgent(BasicStimuli):
     """
     A type of agent that is wandering around from random checkpoint to random checkpoint
@@ -2403,6 +2405,19 @@ class WanderingAgent(BasicStimuli):
             self.pos_functions.append(inst.setPos)
             self.lookat_functions.append(inst.lookAt)
         self.marker('Experiment Control/Task/Agents/Wanderers/Add/{identifier:%i|wander:%s|x:%f|y:%f|z:%f}' % (self.identifier,str(self.wander),self.pos[0],self.pos[1],self.pos[2]))
+
+        # init a few more trackable properties per subject (the mission code will track these if necessary)
+        self.is_directly_visible = [False,False]
+        self.is_directly_invisible = [False,False]
+        self.directly_visible_since = [0,0]
+        self.directly_invisible_since = [0,0]
+        self.was_directly_visible_for = [0,0]
+        self.is_potentially_visible = [False,False]
+        self.is_potentially_invisible = [False,False]
+        self.potentially_visible_since = [0,0]
+        self.potentially_invisible_since = [0,0]
+        self.was_potentially_visible_for = [0,0]
+        self.last_report_time  = [0,0]
 
     def __del__(self):
         self.crowd.remove_agent(self.crowdidx)
@@ -3571,9 +3586,17 @@ class Main(SceneBase):
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
-
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = 20                              # number of checkpoints to go through
+        self.report_field_of_view = 15                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
+        self.double_report_cutoff = 5                           # if an agent is being reported within shorter succession than this many seconds it counts as a double report
+        self.potentially_visible_cutoff = 3                     # if an agent was potentially visible for longer than this, and has not been reported before it went away
+                                                                # we count this as a miss
+        self.short_hide_cutoff = 15                             # if an agent was hidden but was still visible less than this many seconds ago we count that as
+                                                                # as a reappearance after a short hide, not a full re-encounter
+        self.self.short_spotting_cutoff = 1.5                   # if an agent was on camera for less than this duration we count that as a short spotting, which gives
+                                                                # less penalty when not reported (than if it was missed despite being in plain view for long enough)
+
 
         # worldmap task
         self.worldmap_task_params = {}                          # overrides defaults from ProbedObjectsTask
@@ -3588,6 +3611,11 @@ class Main(SceneBase):
         self.unfortunate_spotting_penalty = -1                  # penalty for being spotted by a hostile agent from behind during the secure-perimeter task
         self.threatenaway_bonus = 1                             # bonus for threatening away a hostile by means of a warning signal (horn)
         self.reset_penalty = -2                                 # penalty for using the reset button
+        self.pancam_false_loss = -2                             # penalty for a false report during the pan-the-cam mission
+        self.pancam_missed_loss = -1                            # penalty for a missed report during the pan-the-cam mission
+        self.pancam_unseen_loss = -0.5                          # penalty for missing an unseen (outside the field of view) agent in the pan-the-cam mission
+        self.pancam_spotted_gain = 1                            # gain for a correct spotting during the pan-the-cam mission
+        self.pancam_double_loss = -0.25                         # penalty for double-spotting an agent that has not really disappeared yet
 
         # periodic score updates for certain missions
         self.movetogether_score_drain_period = 60               # period (in seconds) at which score is updated during the move-together mission (countered by reaching a checkpoint in time)
@@ -3975,7 +4003,7 @@ class Main(SceneBase):
     @livecoding
     def play_indiv_pan_watch(self,controlscheme):
         """
-        A mission in which one subject has the checkpoint-drive/reporting task while the other is static and
+        A mission in which one subject has a pan-the-cam task while the other is static and
         interacts only with the satellite maps and the comm displays. Both have a satellite map.
         """
         # set up UI and control schemes
@@ -3984,6 +4012,7 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
             self.reset_control_scheme(controlscheme)
             self.create_wanderers(self.pan_wanderer_count)
+            self.accept(accept_message, lambda: self.on_report(self.panning_idx))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
             self.clients[self.panning_idx].viewport_instructions.submit("During this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
@@ -3991,18 +4020,102 @@ class Main(SceneBase):
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]])
+            accept_message = self.clients[self.panning_idx].tag + '-report'
             # enter main loop
             duration = random.uniform(self.panwatch_duration[0],self.panwatch_duration[1])
             tEnd = time.time() + duration
             while time.time() < tEnd:
-                # update which agent is in field of view
-                # check
+                # get player parameters
+                v = self.agents[self.panning_idx]
+                v_pos = v.getPos(self.city)
+                v_vec = v.getMat(self.city).getRow3(1)
+                c = self.panning_idx
+                now = time.time()
+                # for each agent...
+                for a in self.wanderers:
+                    a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
+                    # visible on camera
+                    directly_visible = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.friendly_field_of_view) is not None
+                    # has line-of-sight with player but not necessarily on camera
+                    potentially_visible = line_of_sight(self.physics, v_pos, a_pos) is not None
+
+                    # update direct visibility properties (= in field of view)
+                    if a.is_directly_visible[c] != directly_visible:
+                        if a.is_directly_visible[c]:
+                            # agent just became visible
+                            a.directly_visible_since[c] = now
+                        else:
+                            # agent just became invisible
+                            a.was_directly_visible_for[c] = now - a.directly_visible_since[c]
+                            a.directly_invisible_since[c] = now
+                        a.is_directly_visible[c] = directly_visible
+
+                    # update potential visibility properties (= visible if the cam is panned towards it)
+                    if a.is_potentially_visible[c] != potentially_visible:
+                        if a.is_potentially_visible[c]:
+                            # agent just became visible
+                            a.potentially_visible_since[c] = now
+                        else:
+                            # agent just became invisible
+                            a.was_potentially_visible_for[c] = now - a.potentially_visible_since[c]
+                            # if it has not been reported since it became potentially visible...
+                            if a.last_report_time[c] > a.potentially_visible_since[c]:
+                                # and it has been visible for long enough that it counts as an actual encounter (not just a short blip)
+                                if a.was_potentially_visible_for[c] > self.potentially_visible_cutoff:
+                                    # and the last report dates back long enough that it is not a double report
+                                    if a.last_report_time[c] > self.double_report_cutoff:
+                                        # and it is not just a reappearance after a short hide
+                                        if a.potentially_invisible_since[c] > self.short_hide_cutoff:
+                                            # then it's a genuine miss!
+                                            if a.directly_visible_since[c] <= a.potentially_visible_since[c] and a.was_directly_visible_for[c] > self.short_spotting_cutoff:
+                                                # and it was directly visible for long enough during this encounter to be counted as a full-visible miss
+                                                self.clients[c].overall_score.score_event(self.pancam_missed_loss)
+                                            else:
+                                                # it was never really in view so we don't penalize quite as badly
+                                                self.clients[c].overall_score.score_event(self.pancam_unseen_loss)
+                            a.potentially_invisible_since[c] = now
+                        a.is_potentially_visible[c] = potentially_visible
+                # time between updates
                 self.sleep(0.25)
 
         finally:
             # cleanup
+            self.ignore(accept_message)
             self.destroy_wanderers()
             taskMgr.remove('UpdateScorePeriodic')
+
+
+    @livecoding
+    def on_report(self,c):
+        """ Called when a client preses the 'report' button during the pan-the-cam mission. """
+        now = time.time()
+        report_valid = False
+        # get all agents in direct field of view
+        v = self.agents[c]
+        v_pos = v.getPos(self.city)
+        v_vec = v.getMat(self.city).getRow3(1)
+        # for each agent...
+        for a in self.wanderers:
+            a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
+            counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
+            if counts_as_report:
+                report_valid = True
+                if now - a.last_report_time[c] > self.double_report_cutoff:
+                    # reporting the same object in too short succession
+                    self.clients[c].overall_score.score_event(self.pancam_double_loss)
+                else:
+                    # valid report
+                    self.clients[client_idx].overall_score.score_event(self.pancam_spotted_gain)
+                a.last_report_time[c] = now
+        if not report_valid:
+            self.clients[client_idx].overall_score.score_event(self.pancam_false_loss)
+
+        self.pancam_false_loss = -2                             # penalty for a false report during the pan-the-cam mission
+        self.pancam_missed_loss = -1                            # penalty for a missed report during the pan-the-cam mission
+        self.pancam_unseen_loss = -1                            # penalty for missing an unseen (outside the field of view) agent in the pan-the-cam mission
+        self.pancam_double_loss = -0.25                         # penalty for double-spotting an agent that has not really disappeared yet
+        self.pancam_spotted_gain = 1                            # gain for a correct spotting during the pan-the-cam mission
+
 
     @livecoding
     def play_coop_movetogether(self):
@@ -4632,6 +4745,31 @@ class Main(SceneBase):
             self.client_warn(client)
         if buttons[1]:   # Gamepad B button
             self.client_reset_vehicle(client)
+
+    @livecoding
+    def on_report(self,c):
+        """ Called when a client preses the 'report' button during the pan-the-cam mission. """
+        now = time.time()
+        report_valid = False
+        # get all agents in direct field of view
+        v = self.agents[c]
+        v_pos = v.getPos(self.city)
+        v_vec = v.getMat(self.city).getRow3(1)
+        # for each agent...
+        for a in self.wanderers:
+            a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
+            counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
+            if counts_as_report:
+                report_valid = True
+                if now - a.last_report_time[c] > self.double_report_cutoff:
+                    # reporting the same object in too short succession
+                    self.clients[c].overall_score.score_event(self.pancam_double_loss)
+                else:
+                    # valid report
+                    self.clients[client_idx].overall_score.score_event(self.pancam_spotted_gain)
+                a.last_report_time[c] = now
+        if not report_valid:
+            self.clients[client_idx].overall_score.score_event(self.pancam_false_loss)
 
     def client_ack(self):
         """ callback when a client has acknowledged something (only during game startup). """
