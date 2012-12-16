@@ -156,6 +156,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                        away_from=None,              # optionally a set of positions from which the generated positions should be distanced by at least some radius
                        nearby_to=None,              # optionally a set of positions from which the generated positions should be distanced by at most some radius
                        within_cone=None,            # list of conic constraints (each is a tuple/list of (origin, direction)
+                       within_box=None,             # optional box constaint ((minx,maxx),(miny,maxy),(minz,maxz))
 
                        # extra parameters
                        nearby_radius=500,           # points may be at most this many meters away from any position in nearby_to (can be a scalar or a 3-tuple of numbers for a scaled ellipsoid range)
@@ -169,7 +170,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                        snap_to_navmesh_radius=1,    # if there is a discrepancy between scene graph geometry and navmesh, this is the radius (in meters) within which to snap positions to the navmesh
                        output_coord_sys='panda',    # the coordinate system of the output points; can be 'panda', i.e., Point3(x,y,z), or 'detour', yielding [pyrecast.uintp,pyrecast.floatp]
                        max_retries=3000,            # maximum number of retries per position (returns one less if not satisfiable)
-                       snap_to_navmesh=True         # whether to snap the positions to the navmesh; note that the NM is a bit coarse in some areas...
+                       snap_to_navmesh=True,        # whether to snap the positions to the navmesh; note that the NM is a bit coarse in some areas...
                        ):
     """
     Generate a list of world-space positions for an existing scene graph that satisfy a number of criteria, such as being reachable from
@@ -252,7 +253,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                     continue
                 pos = Point3(vertices[0] + (vertices[1]-vertices[0])*a  + (vertices[2]-vertices[0])*b)
                 break
-            
+
             # check if within radius from each point in nearby_to
             if (nearby_to is not None) and (nearby_radius is not None):
                 if nearby_param == 'all':
@@ -307,6 +308,13 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         continue
                 else:
                     print "Within_cone_param must be 'any' or 'all'"
+
+            # check if box constaints satisfied
+            if within_box is not None:
+                for axis in [0,1,2]:
+                    if pos[axis] < within_box[axis][0] or pos[axis] > within_box[axis][1]:
+                        accept = False
+                        break
 
             # check if the point is invisible from each point in the the given list
             if invisible_from is not None:
@@ -1597,6 +1605,8 @@ class SatmapTask(BasicStimuli):
                  util,                                          # utility class (for complex rendering commands and the like)
                  client_idx,                                    # index of the responsible participant
 
+                 local_scenegraph,                              # the local world scene graph (used for item placement criteria)
+
                  icons_file='icons_with_labels.txt',            # source file containing a list of sounds and associated queries, as well as correct/incorrect responses
                  distractor_fraction = 0.6,                     # fraction of distractor events on the satmap (no question asked) (was 0.7
                  color_question_fraction = 1,                   # fraction of questions that is about object color rather than quadrant
@@ -1616,12 +1626,14 @@ class SatmapTask(BasicStimuli):
                  scoredomain='visual',                          # the domain in which the scores should be counted
                  item_colors = None,                            # dict of item names to item colors (4-tuples)
                  item_scale = 8,                                # size of the items, in meters relative to ground
+                 constrain_placement=True,                      # whether to constrain the item placement based on city geometry
                  ):
         BasicStimuli.__init__(self)
         self.querypresenter = querypresenter
         self.scorecounter = scorecounter
         self.engine = engine
-        self.scenegraph = scenegraph 
+        self.scenegraph = scenegraph
+        self.local_scenegraph = local_scenegraph
         self.icons_file = icons_file
         self.angular_ambiguity_zone =angular_ambiguity_zone
         self.distractor_fraction = distractor_fraction
@@ -1644,6 +1656,7 @@ class SatmapTask(BasicStimuli):
         self.querydomain = querydomain
         self.scoredomain = scoredomain
         self.client_idx = client_idx
+        self.constrain_placement = constrain_placement
 
         # load the actual media
         self.filenames = []     # icons with associated queries
@@ -1743,8 +1756,14 @@ class SatmapTask(BasicStimuli):
             radius = 0
             while True:
                 # chose random position
-                pos = (random.uniform(centerpos[0]-self.satmap_coverage[0]/2,centerpos[0]+self.satmap_coverage[0]/2),
-                       random.uniform(centerpos[1]-self.satmap_coverage[1]/2,centerpos[1]+self.satmap_coverage[1]/2), centerpos[2])
+                if self.constrain_placement:
+                    pos = generate_positions(
+                        scenegraph=self.local_scenegraph,
+                        objectnames=['Pavement','Concrete','Street'],
+                        within_box=((centerpos[0]-self.satmap_coverage[0]/2,centerpos[0]+self.satmap_coverage[0]/2),(centerpos[1]-self.satmap_coverage[1]/2,centerpos[1]+self.satmap_coverage[1]/2),(-10000,10000)),snap_to_navmesh=False)[0]
+                else:
+                    pos = (random.uniform(centerpos[0]-self.satmap_coverage[0]/2,centerpos[0]+self.satmap_coverage[0]/2),
+                           random.uniform(centerpos[1]-self.satmap_coverage[1]/2,centerpos[1]+self.satmap_coverage[1]/2), centerpos[2])
 
                 # label the compass direction into which the position falls
                 diff = (pos[0]-centerpos[0],pos[1]-centerpos[1])
@@ -3224,6 +3243,7 @@ class ClientGame(SceneBase):
             scorecounter = self.overall_score,
             engine = self._engine,
             scenegraph = self.city,
+            local_scenegraph = self.master.city,
             util = self,
             client_idx = self.num,
             focused = False,
@@ -3473,9 +3493,9 @@ class Main(SceneBase):
         self.lull_mission_types = ['lull-wait']                                 # possible lull missions (appear between any two blocks)
         self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
         self.indiv_mission_types = ['indiv-drive/watch','indiv-watch/drive','indiv-pan/watch','indiv-watch/pan'] # possible indiv missions
-        self.fraction_coop_per_block = (0.3,0.7)                # permitted fraction of co-op missions per block
+        self.fraction_coop_per_block = (0.25,0.75)              # permitted fraction of co-op missions per block
         self.fraction_coop_total = 0.4                          # overall fraction of coop missions out of block missions
-        self.max_repeat_fraction = 0.5                          # maximum fraction of successive mission pairs that consist of the same mission type
+        self.max_repeat_fraction = 0.3                          # maximum fraction of successive mission pairs that consist of the same mission type
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
@@ -3594,9 +3614,15 @@ class Main(SceneBase):
                                                                 # we count this as a miss
         self.short_hide_cutoff = 15                             # if an agent was hidden but was still visible less than this many seconds ago we count that as
                                                                 # as a reappearance after a short hide, not a full re-encounter
-        self.self.short_spotting_cutoff = 1.5                   # if an agent was on camera for less than this duration we count that as a short spotting, which gives
+        self.short_spotting_cutoff = 1.5                        # if an agent was on camera for less than this duration we count that as a short spotting, which gives
                                                                 # less penalty when not reported (than if it was missed despite being in plain view for long enough)
 
+        # response logic
+        self.max_same_modality_responses = 10000 #10            # if subject responds more than this many times in a row in the same modality
+                                                                # (either speech or button) he/she gets a penalty
+        self.repeated_response_loss = -2                        # loss incurred by too many repeats
+        self.repeated_response_penalty_sound = 'sounds/slap.wav'# sound that comes with this type of penalty
+        self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
 
         # worldmap task
         self.worldmap_task_params = {}                          # overrides defaults from ProbedObjectsTask
@@ -3645,6 +3671,8 @@ class Main(SceneBase):
         self.invaders = []                                      # agents that invade a particular location (= the truck)
         self.controllables = []                                 # agents that can be controlled by voice
         self.checkpoint_gizmos = []                             # 3d gizmos for the checkpoints
+        self.last_modality = False                              # true if the last response modality was speech
+        self.same_modality_repeats = 0                          # number of successive responses in the same modality (speech versus button)
 
         # initialize the clients
         for k in [0,1]:
@@ -3718,7 +3746,7 @@ class Main(SceneBase):
     @livecoding
     def init_block_permutation(self):
         """ Generates a permutation of blocks for the current experiment, according to the value of self.permutation (= the permutation number). """
-        print 'Generating block permutations...'
+        print 'Generating block permutations...',
         self.nonlull_mission_types = self.coop_mission_types + self.indiv_mission_types
         self.mission_types = self.lull_mission_types + self.nonlull_mission_types
         self.num_missions_nonlull = int(self.num_blocks * (self.num_missions_per_block[0]+self.num_missions_per_block[1]) / 2.0) 
@@ -3754,7 +3782,9 @@ class Main(SceneBase):
             self.mission_order.pop(random.choice(range(len(self.mission_order))))
         # now re-balance until we have a valid mix for each block
         okay = False
+        attempts = 0
         while not okay:
+            attempts += 1
             random.shuffle(self.mission_order)
             okay = True
             for blockrange in self.block_indices:
@@ -3769,7 +3799,8 @@ class Main(SceneBase):
                     if self.mission_order[k] == self.mission_order[k+1]:
                         num_dups = num_dups+1
                 if num_dups * 1.0 / (len(self.mission_order)-1) > self.max_repeat_fraction:
-                   okay = False
+                    okay = False
+                    break
         self.block_missions = []
         for idxrange in self.block_indices:
             self.block_missions.append([self.mission_order[k] for k in idxrange])
@@ -3779,7 +3810,7 @@ class Main(SceneBase):
         while len(self.lull_order) > (self.num_blocks-1):
             self.lull_order.pop(random.choice(range(len(self.lull_order))))
         random.shuffle(self.lull_order)
-        print 'done.'
+        print 'done after', attempts, 'attempts.'
 
     @livecoding
     def wait_for_humans(self):
@@ -3933,9 +3964,9 @@ class Main(SceneBase):
             elif missiontype == 'indiv-watch/drive':
                 self.play_indiv_drive_watch(['static','vehicle'])
             if missiontype == 'indiv-pan/watch':
-                self.play_indiv_drive_watch(['panning','static'])
+                self.play_indiv_pan_watch(['panning','static'])
             elif missiontype == 'indiv-watch/pan':
-                self.play_indiv_drive_watch(['static','panning'])
+                self.play_indiv_pan_watch(['static','panning'])
             elif missiontype == 'coop-movetogether':
                 self.play_coop_movetogether()
             elif missiontype == 'coop-aerialguide':
@@ -3979,7 +4010,7 @@ class Main(SceneBase):
             self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
             self.sleep(5)
             # set up periodic score update
-            taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]])
+            taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
             # add checkpoint gizmo
             self.checkpoint_new(self.vehicle_idx,oncamera=True,throughwalls=True)
             # wait until the checkpoint has been reached
@@ -4012,6 +4043,7 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
             self.reset_control_scheme(controlscheme)
             self.create_wanderers(self.pan_wanderer_count)
+            accept_message = self.clients[self.panning_idx].tag + '-report'
             self.accept(accept_message, lambda: self.on_report(self.panning_idx))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
@@ -4019,8 +4051,7 @@ class Main(SceneBase):
             self.clients[self.static_idx].viewport_instructions.submit("During this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
             self.sleep(5)
             # set up periodic score update
-            taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]])
-            accept_message = self.clients[self.panning_idx].tag + '-report'
+            taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]], appendTask=True)
             # enter main loop
             duration = random.uniform(self.panwatch_duration[0],self.panwatch_duration[1])
             tEnd = time.time() + duration
@@ -4134,7 +4165,7 @@ class Main(SceneBase):
             self.broadcast_message('You have %i minutes to make it through the next %i checkpoints.' % (self.checkpoint_timeout,self.checkpoint_count))
             self.sleep(5)
             # set up periodic score update
-            taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]])
+            taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
             # show gizmo on all clients
             self.checkpoint_new([0,1], oncamera=True,throughwalls=True)
             # wait until the checkpoint has been reached
@@ -4184,7 +4215,7 @@ class Main(SceneBase):
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
             # set up periodic score update
-            taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]])
+            taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]], appendTask=True)
             # move the agent up into the air (by gradually ramping up the force)
             t0 = time.time()
             while True:
@@ -4247,7 +4278,7 @@ class Main(SceneBase):
             self.broadcast_message('Secure the perimeter around the truck.')
             self.sleep(5)
             # set up periodic score update
-            taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]])
+            taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]], appendTask=True)
             # run for a randomly predetermined time
             duration = random.uniform(self.secure_perimeter_duration[0],self.secure_perimeter_duration[1])
             tEnd = time.time() + duration            
@@ -4507,9 +4538,9 @@ class Main(SceneBase):
                 self.vehicles[client].setBrake(self.brake_force, 0)
                 self.vehicles[client].setBrake(self.brake_force, 1)
                 # add pan control
-                mat = self.agents[num].getParent().getMat(render)
+                mat = self.agents[client].getParent().getMat(render)
                 mat *= Mat4.rotateMat(x,mat.getRow3(2))
-                self.agents[num].getParent().setMat(render,mat)
+                self.agents[client].getParent().setMat(render,mat)
 
         # extra aerial control logic (fly-by-wire)
         if 'aerial' in self.agent_control:
@@ -4634,10 +4665,10 @@ class Main(SceneBase):
     # =================================
 
     @livecoding
-    def update_score_peridic(self,delta,client_ids,task):
+    def update_score_periodic(self,delta,client_ids,task):
         """ Periodically update the score for a subset of clients by a given delta. """
         for c in client_ids:
-            self.clients[c].overall_score.score_event(delta*cl.stress_task.stress_level,nosound=True)
+            self.clients[c].overall_score.score_event(delta*self.clients[c].stress_task.stress_level,nosound=True)
         return task.again
 
     @livecoding
@@ -4814,6 +4845,17 @@ class Main(SceneBase):
             message = 'cl' + str(cl_idx) + '-' + tokens[0].lower().strip()
             print str(time.time()) + " generating message " + message
             self.send_message(message)
+
+            # ensure that the response modality is alternated at a reasonable rate
+            if self.last_modality == actual_speech:
+                self.same_modality_repeats += 1
+                if self.same_modality_repeats > self.max_same_modality_responses:
+                    self.clients[cl_idx].remote_stimpresenter.sound(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume)
+                    self.clients[cl_idx].overall_score.score_event(self.repeated_response_loss,nosound=True)
+            else:
+                self.same_modality_repeats = 0
+                self.last_modality = actual_speech
+
         elif phrase.strip() == 'suspicious object':
             # special handling for the "suspicious object" utterance
             message = 'cl' + str(cl_idx) + '-report'
