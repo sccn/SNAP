@@ -565,7 +565,7 @@ class ScoreCounter(BasicStimuli):
         self.critical_level = critical_level
         self.maximum_level = maximum_level
 
-        self.bar_rect = bar_rect
+        self.bar_rect = list(bar_rect)
         # apply vertical squish
         midpoint = (self.bar_rect[2]+self.bar_rect[3])/2
         self.bar_rect[2] = midpoint + (self.bar_rect[2] - midpoint)*bar_vertical_squish
@@ -646,7 +646,7 @@ class ScoreCounter(BasicStimuli):
     @livecoding
     def init_graphics(self):
         # use a regular rectangle for the bar's background
-        self._bar_background = self._stimpresenter.rectangle(rect=self.bar_rect,duration=max_duration,block=False,color=self.bar_background_color,depth=-0.1)
+        self._bar_background = self._stimpresenter.rectangle(rect=tuple(self.bar_rect),duration=max_duration,block=False,color=self.bar_background_color,depth=-0.1)
         # use another rectangle for the bar indicator
         col = self.cur_color()
         self._bar_indicator = rpyc.enable_async_methods(self._stimpresenter.rectangle(rect=(0,self.bar_rect[1]-self.bar_rect[0],self.bar_rect[2],self.bar_rect[3]),duration=max_duration,block=False,color=(0,0,0,0),depth=0.1))
@@ -4127,7 +4127,7 @@ class Main(SceneBase):
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
-            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", during this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
+            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", during this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
