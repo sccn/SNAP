@@ -190,11 +190,11 @@ def generate_positions(scenegraph,                  # the scene graph for which 
 
     # reformat into lists
     if reachable_from is not None and type(reachable_from) is not list and type(reachable_from) is not tuple:
-        reachable_from = [reachable_from]  
+        reachable_from = [reachable_from]
     if invisible_from is not None and type(invisible_from) is not list and type(invisible_from) is not tuple:
-        invisible_from = [invisible_from]  
+        invisible_from = [invisible_from]
     if away_from is not None and type(away_from) is not list and type(away_from) is not tuple:
-        away_from = [away_from]  
+        away_from = [away_from]
     if nearby_to is not None and type(nearby_to) is not list and type(nearby_to) is not tuple:
         nearby_to = [nearby_to]
 
@@ -543,6 +543,13 @@ class ScoreCounter(BasicStimuli):
                  gain_volume = 0.5,                   # volume of the gain sound
                  failure_volume = 0.5,                # volume of the failure sound
                  recovery_volume = 0.5,               # volume of the recovery sound
+
+                 # rising score number (currently unused)
+                 riser_pos = None,                    # initial pos of the riser
+                 riser_updrift = 0.1,                 # updrift in units/second
+                 riser_color = ((0.2,1,0.2,1),(1,0.2,0.2,1)), # initial colors of the riser (bonus,penalty)
+                 riser_fade = -0.1,                   # value added to the opacity per second
+                 riser_fontsize = 5                   # font size of the text
                  ):
         BasicStimuli.__init__(self)
         if not sound_params:
@@ -559,12 +566,16 @@ class ScoreCounter(BasicStimuli):
         self.maximum_level = maximum_level
 
         self.bar_rect = bar_rect
+        # apply vertical squish
+        midpoint = (self.bar_rect[2]+self.bar_rect[3])/2
+        self.bar_rect[2] = midpoint + (self.bar_rect[2] - midpoint)*bar_vertical_squish
+        self.bar_rect[3] = midpoint + (self.bar_rect[3] - midpoint)*bar_vertical_squish
+
         self.bar_background_color = bar_background_color
         self.bar_failure_color = bar_failure_color
         self.bar_critical_color = bar_critical_color
         self.bar_fine_color = bar_fine_color
         self.bar_abovemax_color = bar_abovemax_color
-        self.bar_vertical_squish = bar_vertical_squish
 
         self.font_size = font_size
         self.text_color = text_color
@@ -582,6 +593,12 @@ class ScoreCounter(BasicStimuli):
         self.failure_volume = failure_volume
         self.recovery_volume = recovery_volume
 
+        self.riser_pos = ((self.bar_rect[0]+self.bar_rect[1])/2,(self.bar_rect[2]+self.bar_rect[3])/2) if riser_pos is None else riser_pos
+        self.riser_updrift = riser_updrift
+        self.riser_color = riser_color
+        self.riser_fade = riser_fade
+        self.riser_fontsize = riser_fontsize
+
         self.paused = False
         self._is_failure = False
 
@@ -589,6 +606,7 @@ class ScoreCounter(BasicStimuli):
         self.marker('Experiment Control/Task/Scoring/Initial/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.score, self.counter_name, self.client_idx))
         self.score_log.write('%s %s [player %i]: score -> %i (new session)\n' % (time.asctime(),self.counter_name,self.client_idx,self.score))
         self.init_graphics()
+
 
     def __del__(self):
         self._bar_background.destroy()
@@ -629,14 +647,13 @@ class ScoreCounter(BasicStimuli):
     def init_graphics(self):
         # use a regular rectangle for the bar's background
         self._bar_background = self._stimpresenter.rectangle(rect=self.bar_rect,duration=max_duration,block=False,color=self.bar_background_color,depth=-0.1)
-        self._bar_background.setScale(1,self.bar_vertical_squish,1)
         # use another rectangle for the bar indicator
         col = self.cur_color()
         self._bar_indicator = rpyc.enable_async_methods(self._stimpresenter.rectangle(rect=(0,self.bar_rect[1]-self.bar_rect[0],self.bar_rect[2],self.bar_rect[3]),duration=max_duration,block=False,color=(0,0,0,0),depth=0.1))
         # but make the rectangle a child of a scaler node (that we use to scale the bar)
         self._bar_scaler = rpyc.enable_async_methods(self._stimpresenter._engine.base.aspect2d.attachNewNode('bar_scaler_' + self.counter_name))
         self._bar_scaler.setPos(self.bar_rect[0],0,0)
-        self._bar_scaler.setScale(max(0.0,min(1.0,self.score/float(self.maximum_level))),self.bar_vertical_squish,1)
+        self._bar_scaler.setScale(max(0.0,min(1.0,self.score/float(self.maximum_level))),1,1)
         self._bar_indicator.reparentTo(self._bar_scaler)
         self._bar_indicator.setColor(col[0],col[1],col[2],col[3])
         self._text = rpyc.enable_async_methods(self._stimpresenter.write(self.counter_name + ':' + str(self.score),duration=max_duration,block=False,pos=((self.bar_rect[0]+self.bar_rect[1])/2,(self.bar_rect[2]+self.bar_rect[3])/2),fg=self.text_color))
