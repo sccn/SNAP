@@ -33,11 +33,12 @@ import random, time, threading, math, traceback, itertools
 # === MAGIC CONSTANTS ===
 # =======================
 
-server_version = '0.1'      # displayed to the experimenter so he/she can keep track of versions
+server_version = '0.2'      # displayed to the experimenter so he/she can keep track of versions
 max_duration = 500000       # the maximum feasible duration (practically infinity)
 max_agents = 20             # maximum number of simultaneous AI-controlled agents
 screen_shuffle = [1,2,3]    # the order of the screen indices from left to right (for handedness switch or random permutation)
-screen_aspect = 1200/700.0  # aspect ratio that this should run on (note: this is the *client* aspect ratio)
+screen_aspect = 1200/700.0  # screen aspect ratio that this should run on (note: this is the *client* aspect ratio)
+
 
 # ========================
 # === HELPER FUNCTIONS ===
@@ -186,7 +187,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
     nodes = []
     for n in objectnames: 
         nodes += scenegraph.findAllMatches('**/' + n + '/-GeomNode')
-        
+
     # reformat into lists
     if reachable_from is not None and type(reachable_from) is not list and type(reachable_from) is not tuple:
         reachable_from = [reachable_from]  
@@ -276,7 +277,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         continue
                 else: 
                     print "Nearby_param must be 'any' or 'all'"
-                    
+
             # check if outside radius from each point in away_from
             if (away_from is not None) and (away_radius is not None):
                 accept = True
@@ -328,7 +329,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         break
                 if not accept:
                     continue
-                
+
             # check if the point is reachable from points in the given list
             if reachable_from is not None:            
                 if reachability_param == 'all':
@@ -376,7 +377,7 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
          sys='aspect2d',      # output coordinate system (can be 'render2d', 'aspect2d', 'normalized', or 'window')
          ):
     """
-    Calculate screen coordinates for a virtual 2d grid on a given screen.
+    Calculate screen coordinates from positions on a virtual 2d grid on a given screen.
     Supports a border around the edge of the screen, margins between cells and a flexible number of horizontal screens (we use 3 here).
     Can output into various panda3d coordinate systems.
     :return: tuple of (x,y) coordinates or a scalar if just one input coordinate was specified
@@ -527,6 +528,7 @@ class ScoreCounter(BasicStimuli):
                  bar_abovemax_color = (0,0,1,1),      # the color of the bar when above the maximum
                  font_size = 4,                       # font size of the score text
                  text_color = (1,1,1,1),              # color of the score text itself
+                 bar_vertical_squish = 0.5,           # squishes the bar vertically...
 
                  # sound parameters
                  sound_params = None,                 # properties of the score response sound (dictionary of parameters to the sound() command)
@@ -562,6 +564,7 @@ class ScoreCounter(BasicStimuli):
         self.bar_critical_color = bar_critical_color
         self.bar_fine_color = bar_fine_color
         self.bar_abovemax_color = bar_abovemax_color
+        self.bar_vertical_squish = bar_vertical_squish
 
         self.font_size = font_size
         self.text_color = text_color
@@ -626,13 +629,14 @@ class ScoreCounter(BasicStimuli):
     def init_graphics(self):
         # use a regular rectangle for the bar's background
         self._bar_background = self._stimpresenter.rectangle(rect=self.bar_rect,duration=max_duration,block=False,color=self.bar_background_color,depth=-0.1)
+        self._bar_background.setScale(1,self.bar_vertical_squish,1)
         # use another rectangle for the bar indicator
         col = self.cur_color()
         self._bar_indicator = rpyc.enable_async_methods(self._stimpresenter.rectangle(rect=(0,self.bar_rect[1]-self.bar_rect[0],self.bar_rect[2],self.bar_rect[3]),duration=max_duration,block=False,color=(0,0,0,0),depth=0.1))
         # but make the rectangle a child of a scaler node (that we use to scale the bar)
         self._bar_scaler = rpyc.enable_async_methods(self._stimpresenter._engine.base.aspect2d.attachNewNode('bar_scaler_' + self.counter_name))
         self._bar_scaler.setPos(self.bar_rect[0],0,0)
-        self._bar_scaler.setScale(max(0.0,min(1.0,self.score/float(self.maximum_level))),1,1)
+        self._bar_scaler.setScale(max(0.0,min(1.0,self.score/float(self.maximum_level))),self.bar_vertical_squish,1)
         self._bar_indicator.reparentTo(self._bar_scaler)
         self._bar_indicator.setColor(col[0],col[1],col[2],col[3])
         self._text = rpyc.enable_async_methods(self._stimpresenter.write(self.counter_name + ':' + str(self.score),duration=max_duration,block=False,pos=((self.bar_rect[0]+self.bar_rect[1])/2,(self.bar_rect[2]+self.bar_rect[3])/2),fg=self.text_color))
@@ -951,6 +955,7 @@ class AttentionSetManager(LatentModule):
 
     def __init__(self,
                  client_idx,    # identifier of the responsible participant
+                 client_id,     # callsign of the responsible participant
                  regions,       # a dictionary of all attention regions and associated focusable objects, of the form: {'visual',[my_visual_focusable_obj1,my_visual_focusable_obj2], 'auditory',[my_auditory_focusable_obj], ...}
                                 # each of these objects has a .focused property which governs how the object behaves, in particular how it assigns scores (e.g., a non-focused object would not assign minus points for missed responses)
                                 # alternatively each of these objects can be a two-element tuple of functions to invoke, where the first is used to defocus and the second is used to set focus
@@ -960,9 +965,12 @@ class AttentionSetManager(LatentModule):
                  load_distribution = lambda: random.choice([0,1,1,1,1,1,1,1,2,2]),  # a function that samples the current number of concurrent modalities from a discrete distribution
                  maintenance_duration = lambda: random.uniform(30,90),              # a function that samples the duration for which the current attention set shall be maintained, in seconds
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
+                 blink_count = 5,                                                   # number of blinks performed the attention indicators when they come on
+                 blink_duration = 1,                                                # duration of the blinks (on state & off state, respectively)
     ):
         LatentModule.__init__(self)
         self.client_idx = client_idx
+        self.client_id = client_id
         self.regions = regions
         self.instructors = instructors
         self.indicators = indicators
@@ -970,6 +978,8 @@ class AttentionSetManager(LatentModule):
         self.maintenance_duration = maintenance_duration
         self.region_names = self.regions.keys()
         self.available_subset = self.region_names
+        self.blink_count = blink_count
+        self.blink_duration = blink_duration
         self.active_regions = []                            # currently active regions
         self.prev_active_regions = []                       # previously active regions
 
@@ -1009,9 +1019,9 @@ class AttentionSetManager(LatentModule):
 
             # display the switch instructions in the appropriate instructors
             if len(self.active_regions) == 0:
-                switch_message = 'From now on, please ignore all side tasks and focus on the main mission.'
+                switch_message = self.client_id + ', from now on, please ignore all side tasks and focus on the main mission.'
             else:
-                switch_message = 'From now on, please focus on ' + self.active_regions[0]
+                switch_message = self.client_id + ', from now on, please focus on ' + self.active_regions[0]
                 if len(self.active_regions) > 1:
                     for r in self.active_regions[1:]:
                         switch_message += ' and ' + r
@@ -1021,10 +1031,22 @@ class AttentionSetManager(LatentModule):
 
             # update the visibility of the region activity indicators
             try:
+                # disable now unfocused regions
                 for regionname in set(self.prev_active_regions).difference(set(self.active_regions)):
-                    self.indicators[regionname][0]() # disable now unfocused regions
-                for regionname in set(self.active_regions).difference(set(self.prev_active_regions)):
-                    self.indicators[regionname][1]() # enable now focused regions
+                    self.indicators[regionname][0]()
+                # enable the now focused regions, blink k times
+                now_focused = set(self.active_regions).difference(set(self.prev_active_regions))
+                for k in range(self.blink_count):
+                    # turn on
+                    for regionname in now_focused:
+                        self.indicators[regionname][1]()
+                    self.sleep(self.blink_duration)
+                    # turn off
+                    for regionname in now_focused:
+                        self.indicators[regionname][0]()
+                # finally turn on and stay on
+                for regionname in now_focused:
+                    self.indicators[regionname][1]()
             except Exception as e:
                 print e
                 traceback.print_exc()
@@ -1032,7 +1054,7 @@ class AttentionSetManager(LatentModule):
 
             self.prev_active_regions = self.active_regions
 
-            self.sleep(self.maintenance_duration())
+            self.sleep(self.maintenance_duration() - 2*self.blink_duration*self.blink_count)
 
     def mask_regions(self,mask):
         """ Apply a mask of possible active regions. """
@@ -1071,8 +1093,8 @@ class StressTask(LatentModule):
                  client_idx,                                            # index of the affected participant
                  low_stress_duration = lambda: random.uniform(60,360),  # the duration of low-stress periods, in seconds
                  high_stress_duration = lambda: random.uniform(15,60),  # the duration of high-stress periods, in seconds
-                 low_stress_value = 0.25,                               # the stress parameter value during low periods
-                 high_stress_value = 0.75,                              # the stress parameter value during high periods
+                 low_stress_value = 1,                                  # the stress parameter value during low periods
+                 high_stress_value = 3,                                 # the stress parameter value during high periods
                  low_transition_sound = 'birds.wav',                    # sound to play when transitioning to low stress
                  low_transition_icon = 'lowstress.jpg',                 # sound to play when transitioning to low stress
                  low_transition_volume = 0.3,                           # volume of that sound
@@ -1095,10 +1117,10 @@ class StressTask(LatentModule):
         self.low_transition_volume = low_transition_volume
         self.high_transition_volume = high_transition_volume  
         self.client_idx = client_idx
-        
+
         # this is the stress parameter
         self.stress_level = low_stress_value
-        
+
     def run(self):
         self.log_setup_parameters()
         while True:
@@ -1109,7 +1131,7 @@ class StressTask(LatentModule):
             duration = self.low_stress_duration()
             self.marker('State/Stress Level/%f, Participant/ID/%i' % (self.stress_level,self.client_idx))
             self.sleep(duration)
-            
+
             # enter a high stress period
             rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume)
             self.iconpresenterfunc(self.high_transition_icon)
@@ -1117,7 +1139,7 @@ class StressTask(LatentModule):
             duration = self.high_stress_duration()
             self.marker('State/Stress Level/%f, Participant/ID/%i' % (self.stress_level,self.client_idx))
             self.sleep(duration)            
-        
+
 
 
 class LoadTask(LatentModule):
@@ -1138,10 +1160,10 @@ class LoadTask(LatentModule):
         self.transition_duration = transition_duration
         self.load_distribution = load_distribution
         self.client_idx = client_idx
-        
+
         # pick a low initial load level
         self.load_level = min(load_distribution(),load_distribution(),load_distribution(),load_distribution(),load_distribution())
-        
+
     def run(self):
         self.log_setup_parameters()
         while True:
@@ -1158,7 +1180,7 @@ class LoadTask(LatentModule):
                 if now > t1:
                     break
                 self.load_level = prev_loadlevel + (next_loadlevel - prev_loadlevel) * (now - t0) / (t1-t0)
-                
+
             # maintain the load level for the maintenance duration
             self.sleep(self.maintenance_duration())   
 
@@ -1179,8 +1201,8 @@ class IndicatorLightTask(LatentModule):
                  focused = True,                                # whether this task is currently focused
 
                  # graphics parameters
-                 pic_off='warnlight_off.png',                       # picture to display for the disabled light
-                 pic_on='warnlight_on.png',                         # picture to display for the enabled light
+                 pic_off='warnlight_off.png',                   # picture to display for the disabled light
+                 pic_on='warnlight_on.png',                     # picture to display for the enabled light
                  pic_params=None,                               # parameters for the picture command (dict)
 
                  # sound parameters
@@ -1194,7 +1216,7 @@ class IndicatorLightTask(LatentModule):
                  response_key='space',                          # key to press in case of an event
                  timeout=2.5,                                   # response timeout for the user
                  hit_reward=0,                                  # reward if hit
-                 miss_penalty=-4,                               # penalty if missed
+                 miss_penalty=-3,                               # penalty if missed
                  false_penalty=-2,                              # penalty for false positives
 
                  # ticking/blinking support
@@ -1202,7 +1224,7 @@ class IndicatorLightTask(LatentModule):
                  pic_tick_on = None,                            # optional blinking in on status
                  tick_rate = None,                              # tick rate (duration in non-tick status, duration in tick status)
                  ):
-        
+
         LatentModule.__init__(self)
         self.scorecounter = scorecounter
         self.stimpresenter = stimpresenter if stimpresenter is not None else self
@@ -1370,17 +1392,17 @@ class CommTask(LatentModule):
                  numcallsigns=6,                            # subset of callsigns to use
 
                  # probabilities & timing control
-                 lull_time = lambda: random.uniform(15,45),                         # duration of lulls, in seconds (drawn per lull)
+                 lull_time = lambda: random.uniform(30,90),                         # duration of lulls, in seconds (drawn per lull)
                  situation_time = lambda: random.uniform(30,90),                    # duration of developing situations, in seconds (drawn per situation)
                  clearafter = 4,                                                    # clear presenter this many seconds after message display
-                 message_interval = lambda: random.uniform(4,6),                    # message interval, in s (drawn per message)
-                 other_callsign_fraction = lambda: random.uniform(0.6,0.75),        # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
-                 no_callsign_fraction = lambda: random.uniform(0.25,0.35),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
+                 message_interval = lambda: random.uniform(12,30),                  # message interval, in s (drawn per message)
+                 other_callsign_fraction = lambda: random.uniform(0.65,0.85),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
+                 no_callsign_fraction = lambda: random.uniform(0.05,0.10),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
                  time_fraction_until_questions = lambda: random.uniform(0.5,0.8),   # the fraction of time into the situation until the first question comes up (drawn per situation)
                                                                                     # in the tutorial mode, this should probably be close to zero
-                 questioned_fraction = lambda: random.uniform(0.6,0.8),             # fraction of targeted messages that incur questions
+                 questioned_fraction = lambda: random.uniform(0.5,0.8),             # fraction of targeted messages that incur questions
                  post_timeout_silence = lambda: random.uniform(1,3),                # radio silence after a timeout of a question has expired (good idea or not?)
-                                  
+
                  # response control
                  response_timeout = 6,                      # response timeout...
                  lock_duration = lambda:random.uniform(7,9),# minimum/maximum duration for which the query presenter is locked
@@ -1388,11 +1410,11 @@ class CommTask(LatentModule):
                  gain_correct=2,                            # amount of reward gained when answering correctly
                  loss_skipped=-1,                           # amount of loss incurred when admitting a miss
                  loss_missed=-2,                            # amount of loss incurred when missing the question (and basically the sentence, too)
-                 
+
                  # bci features
                  callback_delay=0.8,                        # query the BCI this many seconds after a "targeted/important" message was displayed 
                  callback_func=None,                        # call this callback function to do it
-                 
+
                  # question counter
                  num_question=0,                            # the current question index from where we continue
 
@@ -1400,7 +1422,7 @@ class CommTask(LatentModule):
                  scoredomain='auditory',                    # the domain in which the scores should be counted
                  stimulusdomain = 'auditory'                # the domain in which stimuli appear (this is a HED domain)
                  ):
-               
+
         LatentModule.__init__(self)
         self.presenterfunc = presenterfunc
         self.querypresenter = querypresenter
@@ -1424,13 +1446,13 @@ class CommTask(LatentModule):
         self.loss_missed=loss_missed
         self.loss_skipped=loss_skipped
         self.gain_correct=gain_correct
-        
+
         self.events = events
         self.clearafter = clearafter
-        
+
         self.callback_delay = callback_delay
         self.callback_func = callback_func
-        
+
         self.querydomain = querydomain
         self.scoredomain = scoredomain
         self.stimulusdomain = stimulusdomain
@@ -1635,7 +1657,7 @@ class SatmapTask(BasicStimuli):
     def __init__(self,
                  querypresenter,                                # presents queries for satmap events (instance of QueryPresenter)
                  scorecounter,                                  # counts scores and handles reward (instance of ScoreCounter)
-                 
+
                  engine,                                        # instance of the engine that should be used to create the icon resources
                  scenegraph,                                    # scene graph to which the object should be linked
                  util,                                          # utility class (for complex rendering commands and the like)
@@ -1645,11 +1667,11 @@ class SatmapTask(BasicStimuli):
 
                  icons_file='icons_with_labels.txt',            # source file containing a list of sounds and associated queries, as well as correct/incorrect responses
                  distractor_fraction = 0.6,                     # fraction of distractor events on the satmap (no question asked) (was 0.7
-                 color_question_fraction = 1,                   # fraction of questions that is about object color rather than quadrant
+                 color_question_fraction = 0.5,                 # fraction of questions that is about object color rather than quadrant
                  changes_per_cycle = lambda:random.choice([0,0,1,1,2]), # a function that returns how many things should change per update cycle (additions and removals count separately)
                  satmap_coverage = (180,180),                   # coverage area of the satellite map (horizontal, vertical, in meters)
                  lock_duration = (3,6),                         # duration for which the query presenter is blocked by satmap-related queries
-                 onset_delay = lambda: random.uniform(3,6),     # onset delay of the satmap-related queries
+                 onset_delay = lambda: random.uniform(1,3),     # onset delay of the satmap-related queries
                  response_timeout = 6,                          # response timeout for the queries
                  focused = False,                               # whether this scheduler is currently focused
                  approx_max_items = 1,                          # the approx. number of max. items (if more we'll be adding no more than we remove)
@@ -1868,7 +1890,7 @@ class SoundTask(LatentModule):
                  client_idx,                                    # ID of the responsible participant
 
                  # timing control
-                 sound_interval = lambda: random.uniform(4,10), # interval between sound events
+                 sound_interval = lambda: random.uniform(8,20), # interval between sound events
                  lock_duration = (5,6),                         # duration for which the query presenter is blocked by satmap-related queries
                  onset_delay = lambda: random.uniform(2,4),     # onset delay of the satmap-related queries
                  response_timeout = 5,                          # response timeout for the queries
@@ -1883,7 +1905,7 @@ class SoundTask(LatentModule):
                  # misc
                  sound_directions=None,                         # mapping from sound direction labels to angles (relative to listener)
                  sounds_file='sounds_with_labels.txt',          # source file containing a list of sounds and associated queries, as well as correct/incorrect responses
-                 distractor_fraction = 0.5,                     # fraction of distractor events on the satmap (no question asked) (was 0.7
+                 distractor_fraction = 0.5,                     # fraction of distractor events on the satmap (no question asked)
                  sound_volume = 0.5,                            # volume modifier of the sounds
                  querydomain='auditory',                        # domain where the query shall be presented
                  scoredomain='auditory',                        # the domain in which the scores should be counted
@@ -1941,7 +1963,7 @@ class SoundTask(LatentModule):
         while True:
             # wait until the next sound comes up
             self.sleep(self.sound_interval())
-            
+
             # determine properties
             direction = random.sample(self.sound_directions.keys(),1)[0]
             angle = self.sound_directions[direction]
@@ -1950,7 +1972,7 @@ class SoundTask(LatentModule):
             soundidx = random.choice(range(len(self.filenames)))
             filename = self.filenames[soundidx]
             label = self.labels[soundidx]
-        
+
             # pre-compute the associated question
             question = StimulusQuestion(category="sound_direction", phrase="What was the direction of the last " + label + ' sound?',
                 correct_answer=direction, all_answers=self.sound_directions.keys(),label=label, client_idx = self.client_idx)
@@ -2011,7 +2033,7 @@ class ProbedObjectsTask(LatentModule):
             self.excluded_from_questions = [False]*len(self.removers)         # whether this entity is excluded from generating questions (e.g. due to potential ambiguity or since it was a distractor)
             self.last_visible_side = [None]*len(self.removers)                # this is 'left' or 'right' depending on where the entity was last visible (in the subject's fov) 
             self.is_visible = [False]*len(self.removers)                       # whether this entity is currently visible 
-                    
+
     @livecoding
     def __init__(self,
                  querypresenters,                           # the query presenters for the two subjects
@@ -2032,7 +2054,7 @@ class ProbedObjectsTask(LatentModule):
                  item_scale = 2.54/100.0,                   # fallback scaling for all items (to be overridden by per-iitem file content)
                  item_height = 0.0,                         # fallback height for all items (to be overridden by per-iitem file content)
                  item_colors = None,                        # color map for color questions (dict from label to RGBA 4-tuble)
-                 
+
                  # adding and pruning entities
                  placement_geometry = 'Pavement',           # this is the target geometry for placing objects
                  add_within_fov = 45,                       # add items within the given field of view (but behind buildings, i.e., around corners)
@@ -2077,6 +2099,7 @@ class ProbedObjectsTask(LatentModule):
                  querydomain='visual',                       # domain where the query shall be presented
                  scoredomain='visual',                       # the domain in which the scores should be counted
                  ):
+
         LatentModule.__init__(self)
         self.focused = [False,False]                         # replicate initial focused state for each agent
         self.querypresenters = querypresenters
@@ -2088,12 +2111,12 @@ class ProbedObjectsTask(LatentModule):
         self.scenegraph = scenegraph 
         self.navmesh = navmesh
         self.physics = physics 
-         
+
         self.item_file = item_file
         self.item_colors = item_colors
         self.item_scale = item_scale
         self.item_height = item_height
-         
+
         self.placement_geometry = placement_geometry
         self.add_within_fov = add_within_fov
         self.num_potentially_visible = num_potentially_visible
@@ -2107,18 +2130,18 @@ class ProbedObjectsTask(LatentModule):
         self.candidate_radius = candidate_radius
         self.candidate_viewcone = candidate_viewcone
         self.candidate_visible_duration = candidate_visible_duration
-          
+
         self.ask_outside_viewcone = ask_outside_viewcone
         self.ask_after = ask_after
         self.ask_relative_movement = ask_relative_movement
         self.drop_candidate_after = drop_candidate_after
-                                                                       
+
         self.distractor_fraction = distractor_fraction
         self.color_question_fraction = color_question_fraction
         self.lock_duration = lock_duration
         self.onset_delay = onset_delay
         self.response_timeout = response_timeout
-        
+
         self.reportable_objects = reportable_objects
         self.reportable_score_multiplier = reportable_score_multiplier
         self.reportable_timeout = reportable_timeout
@@ -2398,11 +2421,11 @@ class WanderingAgent(BasicStimuli):
                  physics,                   # a bullet physics world for line-of-sight checks
                  surfacegraph,              # a scene graph that controls the surface placement of checkpoints & spawn locations...
                  valid_surfaces=('Street','Concrete','Pavement'), # names of objects whose surfaces may serve as spawn and checkpoint locations
-                 
+
                  # display control
                  scene_graphs=(),           # scene graphs to which to add the renderable models
                  models=(),                 # the models that should be added to those scene graphs
-                 
+
                  # control of the initial spawn location 
                  spawn_pos=None,            # center point of an area in which to spawn (or None if no such area)
                  spawn_radius_min=25,       # minimum distance from the center point (if any)
@@ -2415,6 +2438,8 @@ class WanderingAgent(BasicStimuli):
                  replan_min=50,             # minimum distance of next target from current position
                  replan_max=200,            # maximum distance of next target from current position
                  snap_radius=50,            # tolerance for movement destinations that are not strictly on the navmesh
+
+                 box_constraint = None,     # box constraints for agent movement ((minx,maxx),(miny,maxy),(minz,maxz))
                  ):
         BasicStimuli.__init__(self)
         self.crowd = crowd
@@ -2427,6 +2452,7 @@ class WanderingAgent(BasicStimuli):
         self.replan_min = replan_min
         self.replan_max = replan_max
         self.snap_radius = snap_radius
+        self.box_constraint = box_constraint
 
         # if there is a spawn_pos, generate a position that is a certain distance from that given location,
         # and with no line-of-sight to it (otherwise random); generally restrict to valid surfaces
@@ -2438,7 +2464,8 @@ class WanderingAgent(BasicStimuli):
             nearby_to = None if spawn_pos is None else spawn_pos,
             nearby_radius = spawn_radius_max,
             away_radius = spawn_radius_min,
-            max_retries=100000)[0]
+            max_retries=100000,
+            within_box = self.box_constraint)[0]
 
         # initialize runtime variables
         self.pos = pos                                      # current position in panda3d coordinates
@@ -2516,7 +2543,8 @@ class WanderingAgent(BasicStimuli):
             nearby_to = curpos,
             nearby_radius = self.replan_max,
             away_radius = self.replan_min,
-            output_coord_sys='detour')[0]
+            output_coord_sys='detour',
+            within_box = self.box_constraint)[0]
         return newpos_detour
 
 
@@ -2546,8 +2574,12 @@ class InvadingAgent(BasicStimuli):
                  min_distance=10,           # the closest that the agent will ever get to the hotspot
                  max_distance = 300,        # the farthest that the agent will ever get from the hotspot
                  maxspeed = 3,              # maximum movement speed
-                 enter_building_probability = 0.1, # probability of entering a building after having completed a retreat
+                 enter_building_probability = 0.0, # probability of entering a building after having completed a retreat
                  snap_radius=50,            # tolerance for movement destinations that are not strictly on the navmesh
+
+                 # jump animation (when warned off)
+                 jump_duration = 1,         # duration of the jump, in seconds
+                 jump_height = 0.5,         # jump height, in meters
 
                  # spawn control
                  spawn_pos=None,            # center position where to spawn the agent
@@ -2567,6 +2599,8 @@ class InvadingAgent(BasicStimuli):
         self.mood = initial_mood
         self.enter_building_probability = enter_building_probability
         self.snap_radius = snap_radius
+        self.jump_duration = jump_duration
+        self.jump_height = jump_height
 
         # pick random spawn location around the spawn_pos
         pos_detour = self._propose_nearby_loc(spawn_pos)
@@ -2577,6 +2611,7 @@ class InvadingAgent(BasicStimuli):
         self.mode = ""                                      # current behavioral state; can be "approaching", "waiting", "retreating", "towardsbuilding", "hiding"
         self.identifier = next(_agent_id_generator)         # unique identifier (constant)
         self.crowdidx = self.crowd.add_agent(loc=pos_detour,maxspeed=self.maxspeed) # id in the navigation data structure (constant)
+        self.last_retreat_time = 0                          # last time when this agent started to retreat (needed to time the jump animation)
 
         # add to scene graphs
         self.instances = []
@@ -2629,6 +2664,7 @@ class InvadingAgent(BasicStimuli):
         self.mood = max(self.mood - 9,-10)
         target_detour = self._propose_loc_around_hotspot(spotter_pos=spotter_pos, maintain_hotspot_los=False)
         self.crowd.request_move_target(self.crowdidx, target_detour)
+        self.last_retreat_time = time.time()
         print  'An agent is retreating!'
         target = navigation.detour2panda(target_detour[1])
         self.marker('Experiment Control/Task/Agents/Invaders/Retreat/{identifier:%i|mood:%f|x:%f|y:%f|z:%f|tx:%f|ty:%f|tz:%f}' % (self.identifier,self.mood,self.pos[0],self.pos[1],self.pos[2],target[0],target[1],target[2]))
@@ -2681,9 +2717,12 @@ class InvadingAgent(BasicStimuli):
                 elif self.mode == "towardsbuilding":
                     self.enter_hide()
             else:
+                # get the jump offset (simple parabola)
+                jump_time = time.time() - self.last_retreat_time
+                jump_offset = 0.0 if jump_time > self.jump_duration else (1 - (jump_time/self.jump_duration - 0.5)**2 * 4) * self.jump_height
                 # update position in all scene graphs
                 for i in range(len(self.pos_functions)):
-                    self.pos_functions[i](self.pos.getX(),self.pos.getY(),self.pos.getZ())
+                    self.pos_functions[i](self.pos.getX(),self.pos.getY(),self.pos.getZ() + jump_offset)
                     self.lookat_functions[i](self.pos.getX()+self.vel.getX(),self.pos.getY()+self.vel.getY(),self.pos.getZ()+self.vel.getZ())
 
     @livecoding
@@ -2748,17 +2787,17 @@ class SceneBase(LatentModule):
 
     def __init__(self):
         LatentModule.__init__(self)
-        
+
         # navmesh parameters
         self.max_total_agents = 20                      # upper capacity of the navigation data structures
-        
+
         # terrain placement parameters         
         self.terrainsize = 10000                        # size of the terrain map, in meters (edge length)
         self.terrainheight = 400.0                      # height of the terrain, in meters (black to white is rescaled to this range)
         self.terrain_offset = 0.0                       # vertical offset of the terrain, in meters
         self.terrain_rot = 0                            # rotation of the terrain, in degrees
         self.terrain_rescale = (0.74,0.74,1.0)          # rescaling factor of the terrain (for whatever reason...)
-        
+
         # city placement parameters
         self.cityscale = 1.0                            # unit conversion factor for the city model
 
@@ -2770,7 +2809,7 @@ class SceneBase(LatentModule):
         self.friendly_filename = 'media/r5_rev.bam'     # file name of the friendly agent model (note: these are the voice-controllable robots)
         self.friendly_scale = 2.54/100.0                # unit conversion into meters (here from inches)
         self.friendly_height = -0.3                     # offset of the friendly model from the ground, in meters
-        
+
         # geomipmapping control parameters
         self.geomip_blocksize = 128
         self.geomip_near_distance = 3000                # distance below which the terrain is maintain maximum resolution (in meters)
@@ -2792,7 +2831,7 @@ class SceneBase(LatentModule):
         """ Load the static game world. """
         self.write("Loading world; please wait...",duration=0.5,block=False)
         self.world_root = self._engine.pandac.NodePath('world_root')
-        
+
         # load the navmesh
         searchpath = ConfigVariableSearchPath('model-path')
         self.navmesh = navigation.NavMesh(navmesh=str(searchpath.findFile('media/' + modelname + '.dat')))
@@ -2802,12 +2841,12 @@ class SceneBase(LatentModule):
         self.hostile_model = rpyc.enable_async_methods(self._engine.base.loader.loadModel(self.hostile_filename))
         self.hostile_model.setScale(self.hostile_scale) 
         self.hostile_model.setPos(0,0,self.hostile_height)
-        
+
         # load the model for the friendly agents
         self.friendly_model = rpyc.enable_async_methods(self._engine.base.loader.loadModel(self.friendly_filename))
         self.friendly_model.setScale(self.friendly_scale) 
         self.friendly_model.setPos(0,0,self.friendly_height)         
-        
+
         # load the city model
         if modelname is not None:
             print "Loading model",modelname,"...",
@@ -2816,7 +2855,7 @@ class SceneBase(LatentModule):
             self.city.setName("CityNode")
             self.city.reparentTo(self.world_root)
             print "done."
-            
+
         # load the terrain
         if terrainname is not None:
             print "Loading terrain",terrainname,"...",
@@ -2839,7 +2878,7 @@ class SceneBase(LatentModule):
             terrain_root.setScale(self.terrainsize/1025.0,self.terrainsize/1025.0,self.terrainheight)
             self.terrain.generate()
             print "done."
-                
+
         # load the skybox
         if skyname is not None:
             print "Loading skybox",terrainname,"...",
@@ -2849,7 +2888,7 @@ class SceneBase(LatentModule):
             self.skybox.setCompass()
             self.skybox.reparentTo(self.world_root)
             print "done."
-            
+
         if remove_checkpoints:
             print "Post-processing models...",
             for node in self.city.findAllMatches('**/Checkpoint*'):
@@ -2913,7 +2952,7 @@ class ClientGame(SceneBase):
         # client GUI settings
         self.viewport_corner_pos = grid(2,(1,1),(2,5),'topleft')  # position of the 3d viewport upper left corner (aspect2d coordinates)
         self.agent_viewport_rect = rect(grid(2,(1,1),(2,5),'topleft',sys='window'),grid(2,(1,1),(3,5),'bottomright',sys='window')) # viewport rectangle that displays the own agent's camera (in normalized window coordinates)
-        
+
         # placement of instruction text boxes
         self.viewport_instructions_pos = grid(2,(1,1),(4,5),'topleft') # position of the instruction message box (upper left corner)
         self.viewport_instructions_width = 18               # width of the instruction message box (in characters)
@@ -2922,7 +2961,7 @@ class ClientGame(SceneBase):
         self.satmap_instructions_pos = grid(3,(1,1),(4,5),'topleft')  # position of the satmap instruction message box (upper left corner)
         self.satmap_instructions_width = 18                 # width of the instruction message box (in characters)
         self.satmap_instructions_height = 3                 # width of the instruction message box (in characters)
-        
+
         self.comm_message_pos = grid(1,(1,1),(3,5),'topleft') # position of the text comm chatter scroll box (aspect2d coordinates)
         self.comm_message_width = 36                        # width of the text comm chatter scroll box (in characters)
         self.comm_message_height = 13                       # height of the text comm chatter scroll box (in characters)
@@ -2930,7 +2969,7 @@ class ClientGame(SceneBase):
         # stress indicator
         self.stress_pos = grid(1,(2,5),(4,5))               # position of the stress indicator (aspect2d coordinates)
         self.stress_size = 0.15                             # size of the stress indicator
-                
+
         # warning light
         self.warn_pos = grid(1,(4,5),(4,5))                 # position of the red warning light (aspect2d coordinates)
         self.warn_size = 0.16                               # size of the red warning light
@@ -2956,12 +2995,11 @@ class ClientGame(SceneBase):
         self.agent_satmap_rect  = rect(grid(3,(1,1),(2,5),'topleft',sys='window'),grid(3,(1,1),(3,5),'bottomright',sys='window')) # viewport rectangle that displays the satellite map (normalized window coordinates)
         self.satellite_height = 500                         # height of the satellite map camera over the terrain (orthographic)
         self.satmap_coverage = (225,180)                    # width and height of the satellite map covered area
-        self.satmap_update_interval = 3                     # in seconds
+        self.satmap_update_interval = 4                     # in seconds
 
         # audio parameters
         self.vocal_communications_volume = 0.55             # volume of the vocal communication streams
-        self.sounds_volume = 0.05                           # volume of the sound effect streams
-        
+
         # ambience sound setup
         self.ambience_sound = 'sounds\\nyc_amb2.wav'        # sound file of the background ambience loop
         self.ambience_volume = 0.1                          # normalized volume of the ambience loop
@@ -3050,10 +3088,11 @@ class ClientGame(SceneBase):
         self.braking = False                                # whether the brake button is currently engaged
         self.previous_handbrake_button = False              # whether the handbrake button was on in the previous handler call
         self.handbrake_engaged = False                      # whether the handbrake is currently engaged
-        
+        self.push_to_chat = False                           # whether the push-to-chat button is currently engaged
+
         # per-client scoring
         self.overall_score = None                           # this object handles the score counting
-        
+
         # per-client overlay tasks         
         self.text_comm_task = None                          # textual communications task
         self.vocal_comm_task = None                         # vocal communications task        
@@ -3158,11 +3197,21 @@ class ClientGame(SceneBase):
             pos=(self.sound_gizmo_pos[0]-self.gizmo_corner_offset,self.sound_gizmo_pos[1]+self.gizmo_corner_offset),
             scale=self.attention_indicator_size))
         # pairs of functions to turn various attention indocators on or off
-        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.submit(self.attention_indicator_off), lambda: self.text_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.submit(self.attention_indicator_off), lambda: self.vocal_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.submit(self.attention_indicator_off), lambda: self.sound_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.submit(self.attention_indicator_off), lambda: self.viewport_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.submit(self.attention_indicator_off), lambda: self.satmap_attention_indicator.submit(self.attention_indicator_on), lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.submit(self.attention_indicator_off),
+                                               lambda: self.text_attention_indicator.submit(self.attention_indicator_on),
+                                               lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.submit(self.attention_indicator_off),
+                                                lambda: self.vocal_attention_indicator.submit(self.attention_indicator_on),
+                                                lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.submit(self.attention_indicator_off),
+                                                lambda: self.sound_attention_indicator.submit(self.attention_indicator_on),
+                                                lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.submit(self.attention_indicator_off),
+                                                   lambda: self.viewport_attention_indicator.submit(self.attention_indicator_on),
+                                                   lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.submit(self.attention_indicator_off),
+                                                 lambda: self.satmap_attention_indicator.submit(self.attention_indicator_on),
+                                                 lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
 
     @livecoding
     def init_touch_buttons(self):
@@ -3208,19 +3257,19 @@ class ClientGame(SceneBase):
         self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
             counter_name='Overall', client_idx=self.num, **self.overall_score_args)
         self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Satmap', client_idx=self.num, **self.satmap_score_args)
+            counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), **self.satmap_score_args)
         self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Viewport', client_idx=self.num, **self.viewport_score_args)
+            counter_name='Viewport', client_idx=self.num, text_color=(1,1,1,0), **self.viewport_score_args)
         self.text_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Text', client_idx=self.num, **self.textcomm_score_args)
+            counter_name='Text', client_idx=self.num, text_color=(1,1,1,0), **self.textcomm_score_args)
         self.audio_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Chatter', client_idx=self.num, **self.audiocomm_score_args)
+            counter_name='Chatter', client_idx=self.num, text_color=(1,1,1,0), **self.audiocomm_score_args)
         self.sounds_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Sounds', client_idx=self.num, **self.sound_score_args)
+            counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), **self.sound_score_args)
 
         # a stress modulation process (flips between high and low stress, keeps an indicator icon updated) 
         self.stress_task = self.launch(StressTask(iconpresenterfunc=self.stress_indicator.submit, client_idx=self.num, **self.stress_task_args))
-        
+
         # load modulation task (modulates a load parameter in a piecewise linear manner)
         self.load_task = self.launch(LoadTask(client_idx=self.num, **self.load_task_args))
 
@@ -3267,7 +3316,7 @@ class ClientGame(SceneBase):
             scoredomain = 'textcomm',
             stimulusdomain = 'visual',
             **self.text_comm_task_args))
-        
+
         # voice communications task (answer yes/no comprehension questions about audio statements)
         self.audio_comm_task = self.launch(CommTask(
             presenterfunc = self.vocal_communications_presenter.submit,
@@ -3303,7 +3352,7 @@ class ClientGame(SceneBase):
             focused = False,
             scoredomain = 'sounds',
             **self.sound_task_args))
-        
+
         # attention set management (activates a small subset of attendable regions at any given time)
         self.attention_manager = self.launch(AttentionSetManager(
             regions={'spoken material':[self.audio_comm_task],
@@ -3323,8 +3372,9 @@ class ClientGame(SceneBase):
                         'camera view': self.viewport_attention_indicator_funcs},
             available_subset = self.master.available_attention_set,
             client_idx = self.num,
+            client_id = self.id,
             **self.attention_set_args))
-        
+
 
     # ==============================
     # === SATELLITE MAP HANDLING ===
@@ -3417,7 +3467,7 @@ class ClientGame(SceneBase):
     # =================================
     # === CONNECT TO REMOTE MACHINE ===
     # =================================
-        
+
     @livecoding
     def connect(self):
         """Try to connect to the remote machine/instance for this client. """
@@ -3442,7 +3492,7 @@ class ClientGame(SceneBase):
             except Exception,e:
                 print "not successful (" + str(e) + ")"
                 self.sleep(5)
-        
+
     @livecoding
     def run(self):
         """
@@ -3460,7 +3510,7 @@ class ClientGame(SceneBase):
         # wait until terminated
         self.sleep(max_duration)
 
-        
+
     # =============================
     # === CLIENT EVENT HANDLERS ===
     # =============================
@@ -3481,7 +3531,7 @@ class ClientGame(SceneBase):
     def on_keydown(self,keyname):
         # pass the keystroke on to the master (as keyname-cl0 or keyname-cl1)
         self.send_message(keyname + '-cl' + str(self.num) + "-down")
-        
+
     def on_keyup(self,keyname):
         # pass the keystroke on to the master (as keyname-cl0 or keyname-cl1)
         self.send_message(keyname + '-cl' + str(self.num) + "-up")
@@ -3493,9 +3543,7 @@ class ClientGame(SceneBase):
         self.axis_u = u
         self.axis_v = v
         self.braking = buttons[2]
-        if not self.previous_handbrake_button and buttons[3]:
-            self.handbrake_engaged = not self.handbrake_engaged
-        self.previous_handbrake_button = buttons[3]
+        self.push_to_chat = buttons[3]
         self.master.on_joystick(self.num,x,y,u,v,buttons)
 
     def on_speech(self,phrase):
@@ -3522,7 +3570,7 @@ class Main(SceneBase):
         All configuration variables set here can be overridden afterwards via study configuration (.cfg) files.
         """        
         SceneBase.__init__(self)
-        
+
         # setup variables
         self.client_hosts = ['10.0.0.110:3663','10.0.0.115:3664'] # client host addresses (these are running the interaction with the two subjects)
         self.client_ids = ["Delta","Echo"]                      # client call-signs
@@ -3536,7 +3584,7 @@ class Main(SceneBase):
         self.permutation = 1                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
-        
+
         # mission mix
         self.lull_mission_types = ['lull-wait','lull-deep']     # possible lull missions (appear between any two blocks)
         self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
@@ -3566,7 +3614,7 @@ class Main(SceneBase):
         self.alert_sound = 'sounds/SysAlert.wav'                # the alert that is played to warn off hostile agents
         self.initial_experimenter_camera_pos = (-500,-500,500)  # initial 3d position of the experimenter's camera
         self.initial_experimenter_camera_target = (0,0,0)       # initial target (look-at) point of the experimenter's camera
-        
+
         # GUI parameters
         self.viewport_rect = (0.05, 0.45, 0.9, 0.1)             # viewport rect of the experimenter
         self.cam_friction = 0.5                                 # friction coefficient for inert camera movement
@@ -3615,11 +3663,12 @@ class Main(SceneBase):
         self.vehicle_camera_pos = (0,0.5,0.25)                  # offset of the camera relative to the vehicle body (center of mass)
         self.vehicle_mass = 400.0                               # mass, in kilograms, of the vehicle
         self.vehicle_chassis_size = (0.25, 0.45, 0.25)          # size (width/depth/height) of the vehicle chassis
-        self.vehicle_chassis_offset = (0, 0, 0.25)              # offset of the vehicle chassis center relative to the center of mass 
-        
+        self.vehicle_chassis_offset = (0, 0, 0.25)              # offset of the vehicle chassis center relative to the center of mass
+        self.vehicle_roll_friction = 0.5                        # roll friction of the vehicle (slows it down)
+
         # aerial control parameters
         self.rise_time = 5                                      # time it takes a drone to ramp up the rising force from 0 to max
-        self.rise_altitude = 200                                # desired altitude below to which the vehicle exerts rising force
+        self.rise_altitude = 150                                # desired altitude below to which the vehicle exerts rising force
         self.rise_force = 0                                     # the current rising force (per meter of discrepancy between current altitude and desired altitude) 
                                                                 # (ramped up from 0 to max during the rise_time)
         self.rise_force_max = 4                                 # maximum rising force (per meter... -- see above)
@@ -3657,6 +3706,7 @@ class Main(SceneBase):
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
+        self.pancam_wanderer_range = (400,400)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = 20                              # number of checkpoints to go through
         self.report_field_of_view = 15                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
@@ -3681,7 +3731,7 @@ class Main(SceneBase):
         # scoring business
         self.staytogether_penalty = -1                          # penalty for not staying together during a stay-together mission
         self.checkpoint_reach_bonus = 3                         # bonus for reaching a checkpoint
-        self.spotted_penalty = -3                               # penalty for being spotted by a wandering hostile
+        self.spotted_penalty = -6                               # penalty for being spotted by a wandering hostile
         self.perimeter_finish_bonus = 5                         # when the perimeter task has been completed
         self.chaseaway_bonus = 1                                # bonus for chasing away a hostile just by mere presence
         self.danger_penalty = -1                                # penalty that is applied when an agent has a line-of-sight to the truck
@@ -3717,7 +3767,7 @@ class Main(SceneBase):
         self.vehicle_idx = None                                 # index of the vehicle client (0 if both are vehicle-bound)
         self.aerial_idx = None                                  # index of the aerial client (0 if both are air-bound)
         self.static_idx = None                                  # index of the static client (0 if both are static)
-        
+
         self.wanderers = []                                     # randomly wandering agents
         self.invaders = []                                      # agents that invade a particular location (= the truck)
         self.controllables = []                                 # agents that can be controlled by voice
@@ -3732,7 +3782,7 @@ class Main(SceneBase):
         # initialize continuous-value streams for LSL
         self.init_lsl_playerstream()
         self.init_lsl_agentstream()
-        
+
     def run(self):
         """ Top-level LSE experiment procedure. Called by SNAP. """
 
@@ -3754,12 +3804,12 @@ class Main(SceneBase):
         self.init_guis()
         # initialize physics and collision detection
         self.init_physics()
-        
+
         # wait until everyone is ready
         self.wait_for_humans()
 
         # --- enter the actual gameplay ---
-        
+
         # start the side/overlay tasks
         self.init_subtasks()
         self.marker('Experiment Control/Sequence/Experiment Begins')        
@@ -3802,10 +3852,10 @@ class Main(SceneBase):
         self.mission_types = self.lull_mission_types + self.nonlull_mission_types
         self.num_missions_nonlull = int(self.num_blocks * (self.num_missions_per_block[0]+self.num_missions_per_block[1]) / 2.0) 
         self.num_missions_total = self.num_missions_nonlull + self.num_blocks-1 # there is a lull mission between any two blocks 
-            
+
         random.seed(self.permutation*1391 + 31)
         self.marker('Experiment Control/Sequence/Permutation ID/%i' % self.permutation)
-        
+
         # determine block lengths
         self.block_lengths = []
         possible_lengths = range(self.num_missions_per_block[0],self.num_missions_per_block[1]+1)        
@@ -3823,7 +3873,7 @@ class Main(SceneBase):
         for b in self.block_lengths:
             self.block_indices.append(range(next_index,next_index+b))
             next_index = next_index+b
-        
+
         # generate an initial sequence with the correct fractions (but possibly too long)
         self.mission_order = self.coop_mission_types * int(1 + self.fraction_coop_total * self.num_missions_nonlull /
                                                            float(len(self.coop_mission_types))) + self.indiv_mission_types * int(1 + (1.0-self.fraction_coop_total) * self.num_missions_nonlull /
@@ -3882,7 +3932,7 @@ class Main(SceneBase):
     @livecoding
     def init_guis(self):
         """ Initializes the task-independent (persistent) GUIs of all participants, including experimenter and subjects. """
-         
+
         # add experimenter's free-floating camera and camera controls
         self.camera = NodePath(Camera('world_camera'))
         self.camera.node().setCameraMask(BitMask32.bit(2))
@@ -3896,10 +3946,10 @@ class Main(SceneBase):
         self.cam_velocity = Point3(0,0,0)
         self.cam_angular_velocity = Point3(0,0,0)
         taskMgr.add(self.on_camtick, "ExperimenterCamTick")
-        
+
         # make a viewport for it
         self.viewport = self.create_viewport(self.viewport_rect,self.camera)
-        
+
         # add text presenters
         self.message_presenter = ScrollPresenter.ScrollPresenter(pos=self.message_pos)
         self.score_presenter = TextPresenter.TextPresenter(pos=self.score_pos,framecolor=[0,0,0,0])
@@ -3944,7 +3994,7 @@ class Main(SceneBase):
         self.checkpoints.sort()
         # remove the name again
         self.checkpoints = [x[1] for x in self.checkpoints]
-        
+
         self.write("done.")
 
     @livecoding
@@ -3970,7 +4020,7 @@ class Main(SceneBase):
         self.init_global_subtasks()
         # also initialize the scores
         self.update_score_both(0)
-                
+
     @livecoding
     def init_global_subtasks(self):
         """ Init the global (world-space) subtasks. """
@@ -4029,7 +4079,7 @@ class Main(SceneBase):
             missiondisplay.destroy()
             self.marker('Experiment Control/Sequence/Mission Ends/%s' % missiontype)
         blockdisplay.destroy()
-        
+
         # play the next lull mission
         if b < len(self.lull_order):
             lulldisplay = self.write('Current lull #: ' + str(b+1) + '/' + str(self.num_blocks-1),pos=(-1.5,-0.95),scale=0.05,duration=max_duration)
@@ -4095,6 +4145,12 @@ class Main(SceneBase):
             for cl in self.clients:
                 cl.toggle_satmap(True)
             self.reset_control_scheme(controlscheme)
+
+            # determine the navigation zone around the relevant subject
+            v = self.agents[self.panning_idx]
+            v_pos = v.getPos(self.city)
+            box_constraint = ((v_pos[0]-self.pancam_wanderer_range[0]/2,v_pos[0]+self.pancam_wanderer_range[0]/2),(v_pos[1]-self.pancam_wanderer_range[1]/2,v_pos[1]+self.pancam_wanderer_range[1]/2),(-10000,10000))
+
             self.create_wanderers(self.pan_wanderer_count)
             accept_message = self.clients[self.panning_idx].tag + '-report'
             self.accept(accept_message, lambda: self.on_report(self.panning_idx))
@@ -4168,39 +4224,6 @@ class Main(SceneBase):
             self.ignore(accept_message)
             self.destroy_wanderers()
             taskMgr.remove('UpdateScorePeriodic')
-
-
-    @livecoding
-    def on_report(self,c):
-        """ Called when a client preses the 'report' button during the pan-the-cam mission. """
-        now = time.time()
-        report_valid = False
-        # get all agents in direct field of view
-        v = self.agents[c]
-        v_pos = v.getPos(self.city)
-        v_vec = v.getMat(self.city).getRow3(1)
-        # for each agent...
-        for a in self.wanderers:
-            a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
-            counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
-            if counts_as_report:
-                report_valid = True
-                if now - a.last_report_time[c] > self.double_report_cutoff:
-                    # reporting the same object in too short succession
-                    self.clients[c].overall_score.score_event(self.pancam_double_loss)
-                else:
-                    # valid report
-                    self.clients[client_idx].overall_score.score_event(self.pancam_spotted_gain)
-                a.last_report_time[c] = now
-        if not report_valid:
-            self.clients[client_idx].overall_score.score_event(self.pancam_false_loss)
-
-        self.pancam_false_loss = -2                             # penalty for a false report during the pan-the-cam mission
-        self.pancam_missed_loss = -1                            # penalty for a missed report during the pan-the-cam mission
-        self.pancam_unseen_loss = -1                            # penalty for missing an unseen (outside the field of view) agent in the pan-the-cam mission
-        self.pancam_double_loss = -0.25                         # penalty for double-spotting an agent that has not really disappeared yet
-        self.pancam_spotted_gain = 1                            # gain for a correct spotting during the pan-the-cam mission
-
 
     @livecoding
     def play_coop_movetogether(self):
@@ -4295,7 +4318,7 @@ class Main(SceneBase):
                     # check if we bumped into a hostile
                     for a in self.wanderers:
                         a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+2) # the agent's head is not on ground level
-                        if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_fov=self.hostile_field_of_view) is not None:
+                        if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_maxsight=self.hostile_minimum_distance, src_fov=self.hostile_field_of_view) is not None:
                             self.marker('Experiment Control/Task/Hint/Spotted By Hostile Wanderer')
                             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', you have been spotted by a foreign drone!')
                             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', your partner has been spotted by a foreign drone!')
@@ -4341,7 +4364,7 @@ class Main(SceneBase):
                 for a in self.invaders:
                     if a.mode == "hiding":
                         continue
-                    
+
                     # check if any invader has line-of-sight with the truck
                     a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
                     if line_of_sight(self.physics, a_pos, self.truck_pos, a.vel, src_fov=self.hostile_field_of_view) is not None:
@@ -4349,7 +4372,7 @@ class Main(SceneBase):
                         self.broadcast_message('the truck is in a dangerous situation!')
                         self.update_score_both(self.danger_penalty)
                         self.sleep(3)
-                                                                 
+
                     # check if any invader is spotted by a friendly agent
                     for k in range(len(self.agents)):
                         v = self.agents[k]
@@ -4364,7 +4387,7 @@ class Main(SceneBase):
                                 a.enter_retreat(v.getPos(self.city))
                                 self.update_score_both(self.chaseaway_bonus)
                                 self.sleep(1)
-                                
+
                     # check if any invader is spotted by a voice-controllable robot
                     for v in self.controllables:
                         viewdir = v.vel
@@ -4377,7 +4400,7 @@ class Main(SceneBase):
                                 a.enter_retreat(v.getPos(self.city))
                                 self.update_score_both(self.chaseaway_bonus)
                                 self.sleep(1)
-                                
+
                     # check if any friendly agent is spotted from behind by an enemy
                     for v in self.agents:
                         if line_of_sight(self.physics,
@@ -4388,10 +4411,10 @@ class Main(SceneBase):
                             self.clients[1-k].viewport_instructions.submit(self.clients[1-k].id + ', your partner''s robot was spotted from behind!')
                             self.update_score_both(self.unfortunate_spotting_penalty)
                             self.sleep(3)
-                            
+
                 # update policy shortly
                 self.sleep(0.25)
-    
+
             self.broadcast_message('you have completed the perimeter mission!')
             self.update_score_both(self.perimeter_finish_bonus)
         finally:
@@ -4432,7 +4455,7 @@ class Main(SceneBase):
     # ====================
     # === PHYSICS CODE ===
     # ====================
-    
+
     @livecoding
     def init_physics(self):
         """ Initialize physics simulation. """
@@ -4476,7 +4499,7 @@ class Main(SceneBase):
                     self.meshes.append(mesh)
                     self.shapes.append(shape)
             print "done."
-        
+
     @livecoding
     def init_physics_terrain(self):
         """ Generate terrain collision detection. """
@@ -4490,7 +4513,7 @@ class Main(SceneBase):
             np.setCollideMask(BitMask32.allOn())
             self.physics.attachRigidBody(np.node())
             print "done."        
-        
+
     @livecoding
     def init_physics_vehicle(self,sourcenode,k):
         """ Init a player-controlled vehicle. """
@@ -4579,8 +4602,8 @@ class Main(SceneBase):
                     self.vehicles[client].setBrake(self.brake_force, 0)
                     self.vehicles[client].setBrake(self.brake_force, 1)
                 else:
-                    self.vehicles[client].setBrake(0.0, 0)
-                    self.vehicles[client].setBrake(0.0, 1)
+                    self.vehicles[client].setBrake(self.vehicle_roll_friction, 0)
+                    self.vehicles[client].setBrake(self.vehicle_roll_friction, 1)
             elif self.agent_control[client] == 'aerial':
                 # apply aerial steering
                 ch = self.vehicles[client].getChassis()
@@ -4644,7 +4667,7 @@ class Main(SceneBase):
     # =================================
 
     @livecoding
-    def create_wanderers(self,num=10):
+    def create_wanderers(self,num=10,box_constraint=None):
         self.wanderers = []
         for n in range(num):
             self.wanderers.append(WanderingAgent(
@@ -4655,7 +4678,8 @@ class Main(SceneBase):
                 models=[self.hostile_model,self.clients[0].hostile_model,self.clients[1].hostile_model],
                 spawn_pos=None,
                 wander=True,
-                line_of_sight=False))
+                line_of_sight=False,
+                box_constraint=box_constraint))
         taskMgr.add(self.update_wanderers,"UpdateWanderers")
 
     @livecoding
@@ -4796,44 +4820,44 @@ class Main(SceneBase):
         self.camera.setPos(self.cam_position)
         self.camera.setHpr(self.cam_orientation)
         return Task.cont
-    
+
     def on_forward(self):
         forward = self.camera.getMat().getRow3(1)
         self.cam_velocity += forward*self.cam_acceleration
-            
+
     def on_reverse(self):
         reverse = -self.camera.getMat().getRow3(1)
         self.cam_velocity += reverse*self.cam_acceleration
-    
+
     def on_left(self):
         left = -self.camera.getMat().getRow3(0)
         self.cam_velocity += left*self.cam_acceleration
-    
+
     def on_right(self):
         right = self.camera.getMat().getRow3(0)
         self.cam_velocity += right*self.cam_acceleration
-    
+
     def on_up(self):
         planar_forward = self.camera.getMat().getRow3(1)
         planar_forward.setZ(0)
         planar_forward *= 1.0 / planar_forward.length()
         self.cam_velocity += planar_forward*self.cam_acceleration
-            
+
     def on_down(self):
         planar_reverse = -self.camera.getMat().getRow3(1)
         planar_reverse.setZ(0)
         planar_reverse *= 1.0 / planar_reverse.length()
         self.cam_velocity += planar_reverse*self.cam_acceleration
-    
+
     def on_turnleft(self):
         self.cam_angular_velocity += Point3(self.cam_turnrate,0,0)
-        
+
     def on_turnright(self):
         self.cam_angular_velocity -= Point3(self.cam_turnrate,0,0)
 
     def on_turnup(self):
         self.cam_angular_velocity += Point3(0,self.cam_turnrate,0)
-        
+
     def on_turndown(self):
         self.cam_angular_velocity -= Point3(0,self.cam_turnrate,0)
 
@@ -4894,11 +4918,14 @@ class Main(SceneBase):
             # check if any invader has line-of-sight with the responsible player
             a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
             los = line_of_sight(self.physics,v.getPos(self.city),a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
-            if los is not None and (not a.mode == "retreating"):
-                self.broadcast_message("You have successfully warned off an agent!")
-                self.marker('Stimulus/Feedback/Reward/On Accuracy')
-                a.enter_retreat(v.getPos(self.city))
-                self.update_score_both(self.threatenaway_bonus)
+            if los is not None:
+                if a.mode == "retreating":
+                    self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', this agent is already retreating.')
+                else:
+                    self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!')
+                    self.marker('Stimulus/Feedback/Reward/On Accuracy')
+                    a.enter_retreat(v.getPos(self.city))
+                    self.update_score_both(self.threatenaway_bonus)
 
     @livecoding
     def handle_client_speech(self,
@@ -4906,14 +4933,18 @@ class Main(SceneBase):
                              phrase,               # the raw phrase that was emitted
                              actual_speech=True    # whether the modality is in fact speech or rather a press of a labeled button 
                              ):
-        """ Handles the subjects' speech responses. """          
-        print str(time.time()) + " client",cl_idx,"said:",phrase
+        """ Handles the subjects' speech responses. """
 
+        print str(time.time()) + " client",cl_idx,"said:",phrase
         if actual_speech:
+            if self.clients[cl_idx].push_to_chat:
+                print str(time.time()) + ": ignoring speech detection due to push-to-chat being pressed (",phrase,")"
+                self.marker('Experiment Control/Task/IgnoredResponse/Speech/%s, Participant/ID/%i' % (phrase,cl_idx))
+                return
             self.marker('Response/Speech/%s, Participant/ID/%i' % (phrase,cl_idx))
         else:
             self.marker('Response/Button Press/Touch Screen/%s, Participant/ID/%i' % (phrase,cl_idx))
-    
+
         tokens = phrase.split(' ')
         if len(tokens) == 1:
             # single-word responses are directly translated into a message of the form 'cl0-word'
@@ -4981,7 +5012,7 @@ class Main(SceneBase):
             # stop vehicle
             self.vehicles[num].getChassis().setLinearVelocity(Vec3(0,0,0))
             self.vehicles[num].getChassis().setAngularVelocity(Vec3(0,0,0))
-            
+
             # find a nearby point on the navmesh to reset to
             meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=self.agents[num].getParent().getPos(self.city), radius=self.reset_snap_radius)[1])
             # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
@@ -5017,7 +5048,7 @@ class Main(SceneBase):
     # ==========================
     # === GAME LOGIC HELPERS ===
     # ==========================
-    
+
     @livecoding
     def reset_control_scheme(self,
                              schemelist,            # a list of control schemes, e.g. ['vehicle','static']
@@ -5028,12 +5059,12 @@ class Main(SceneBase):
         self.agent_control = schemelist
         for i in range(len(schemelist)):
             self.marker('Experiment Control/Task/Control Scheme/Reset/%s, Participant/ID/%i' % (schemelist[i],i))
-            
+
         self.vehicle_idx = self.agent_control.index('vehicle') if 'vehicle' in self.agent_control else None
         self.aerial_idx = self.agent_control.index('aerial') if 'aerial' in self.agent_control else None
         self.static_idx = self.agent_control.index('static') if 'static' in self.agent_control else None
         self.panning_idx = self.agent_control.index('panning') if 'panning' in self.agent_control else None
-    
+
     @livecoding    
     def checkpoint_new(self,
                        client_indices,      # list of client indices for whom to create the checkpoint (besides the experimenter, who always gets to see them)
@@ -5080,12 +5111,12 @@ class Main(SceneBase):
             g.destroy()
         self.checkpoint_gizmos = []
         self.marker('Experiment Control/Task/Checkpoint/Remove')
-    
-    
+
+
     # ================
     # === LSL CODE ===
     # ================
-    
+
     @livecoding
     def init_lsl_playerstream(self):
         """ Initialize the PlayerCoordinates stream for LSL. """
