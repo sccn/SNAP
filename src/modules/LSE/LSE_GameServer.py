@@ -1907,7 +1907,7 @@ class SoundTask(LatentModule):
                  client_idx,                                    # ID of the responsible participant
 
                  # timing control
-                 sound_interval = lambda: random.uniform(8,20), # interval between sound events
+                 sound_interval = lambda: random.uniform(6,15), # interval between sound events
                  lock_duration = (5,6),                         # duration for which the query presenter is blocked by satmap-related queries
                  onset_delay = lambda: random.uniform(2,4),     # onset delay of the satmap-related queries
                  response_timeout = 5,                          # response timeout for the queries
@@ -2516,7 +2516,8 @@ class WanderingAgent(BasicStimuli):
         self.potentially_visible_since = [0,0]
         self.potentially_invisible_since = [0,0]
         self.was_potentially_visible_for = [0,0]
-        self.last_report_time  = [0,0]
+        self.last_report_time = [0,0]
+        self.last_spotting_time = [0,0]
 
     def __del__(self):
         self.crowd.remove_agent(self.crowdidx)
@@ -2595,7 +2596,7 @@ class InvadingAgent(BasicStimuli):
                  snap_radius=50,            # tolerance for movement destinations that are not strictly on the navmesh
 
                  # jump animation (when warned off)
-                 jump_duration = 1,         # duration of the jump, in seconds
+                 jump_duration = 0.3,       # duration of the jump, in seconds
                  jump_height = 0.5,         # jump height, in meters
 
                  # spawn control
@@ -2740,7 +2741,7 @@ class InvadingAgent(BasicStimuli):
                 # update position in all scene graphs
                 for i in range(len(self.pos_functions)):
                     self.pos_functions[i](self.pos.getX(),self.pos.getY(),self.pos.getZ() + jump_offset)
-                    self.lookat_functions[i](self.pos.getX()+self.vel.getX(),self.pos.getY()+self.vel.getY(),self.pos.getZ()+self.vel.getZ())
+                    self.lookat_functions[i](self.pos.getX()+self.vel.getX(),self.pos.getY()+self.vel.getY(),self.pos.getZ()+jump_offset+self.vel.getZ())
 
     @livecoding
     def _propose_nearby_loc(self,pos):
@@ -3272,7 +3273,7 @@ class ClientGame(SceneBase):
 
         # create various score counters
         self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Overall', client_idx=self.num, **self.overall_score_args)
+            counter_name='Overall', client_idx=self.num, bar_vertical_squish=1, **self.overall_score_args)
         self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
             counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), **self.satmap_score_args)
         self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
@@ -3685,7 +3686,7 @@ class Main(SceneBase):
 
         # aerial control parameters
         self.rise_time = 5                                      # time it takes a drone to ramp up the rising force from 0 to max
-        self.rise_altitude = 150                                # desired altitude below to which the vehicle exerts rising force
+        self.rise_altitude = 175                                # desired altitude below to which the vehicle exerts rising force
         self.rise_force = 0                                     # the current rising force (per meter of discrepancy between current altitude and desired altitude) 
                                                                 # (ramped up from 0 to max during the rise_time)
         self.rise_force_max = 4                                 # maximum rising force (per meter... -- see above)
@@ -3698,7 +3699,7 @@ class Main(SceneBase):
         self.aerial_linear_damping = 0.95                       # linear damping (air friction) of aerial vehicle
 
         # panning control parameters
-        self.pan_speed = 10                                     # speed at which the camera pands
+        self.pan_speed = 10                                     # speed at which the camera pans
 
         # wandering agent parameters
         self.wanderer_count = 10                                # number of hostile wanderers in some of the checkpoint missions
@@ -3715,15 +3716,17 @@ class Main(SceneBase):
         self.controllable_scatter = 10                          # spawn scatter radius aroun own agents, in meters
         self.controllable_min_spawndistance = 4                 # minimum distance from own agents
         self.relative_move_distance = 10                        # distance walked for relative movement commands, in meters
+        self.controllables_max_sight = 25                       # the range at which controllable robots can warn off invading robots
 
         # mission control parameters
         self.checkpoint_accept_distance = 10                    # both agents must get this close within the checkpoint for it to be accepted (in meters)
         self.staytogether_max_distance = 15                     # agents must stay within this distance from each other during a 'stay-together' mission 
         self.min_reset_interval = 3                             # minimum interval between agent position resets, in seconds
+        self.min_spotted_interval = 10                          # the player cannot be spotted by a given hostile more frequently than every this many seconds
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
-        self.pancam_wanderer_range = (400,400)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
+        self.pancam_wanderer_range = (150,150)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = 20                              # number of checkpoints to go through
         self.report_field_of_view = 15                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
@@ -4158,6 +4161,7 @@ class Main(SceneBase):
         interacts only with the satellite maps and the comm displays. Both have a satellite map.
         """
         # set up UI and control schemes
+        accept_message = ''
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
@@ -4335,12 +4339,13 @@ class Main(SceneBase):
                     # check if we bumped into a hostile
                     for a in self.wanderers:
                         a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+2) # the agent's head is not on ground level
-                        if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_maxsight=self.hostile_minimum_distance, src_fov=self.hostile_field_of_view) is not None:
+                        if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_maxsight=self.hostile_minimum_distance, src_fov=self.hostile_field_of_view) is not None and (time.time() - a.last_spotting_time[self.vehicle_idx]) > self.min_spotted_interval:
+                            a.last_spotting_time[self.vehicle_idx] = time.time()
                             self.marker('Experiment Control/Task/Hint/Spotted By Hostile Wanderer')
                             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', you have been spotted by a foreign drone!')
                             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', your partner has been spotted by a foreign drone!')
                             self.update_score_both(self.spotted_penalty)
-                            self.sleep(5)
+                            self.sleep(2)
                     # check again shortly
                     self.sleep(0.25)
                 # checkpoint was reached
@@ -4410,7 +4415,7 @@ class Main(SceneBase):
                         viewdir = v.vel
                         los = line_of_sight(self.physics,
                             v.pos,a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),
-                            a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
+                            a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view,src_maxsight=self.controllables_max_sight)
                         if los is not None:
                             if los == "front" and (not a.mode == "retreating"):
                                 self.broadcast_message('one of your guards has fended off an intruder!')
@@ -4929,6 +4934,8 @@ class Main(SceneBase):
         v = self.agents[idx]
         rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False)
         viewdir = v.getMat(self.city).getRow(1)
+        num_warnedoff = 0
+        num_alreadyretreating = 0
         for a in self.invaders:
             if a.mode == "hiding":
                 continue
@@ -4937,12 +4944,17 @@ class Main(SceneBase):
             los = line_of_sight(self.physics,v.getPos(self.city),a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
             if los is not None:
                 if a.mode == "retreating":
-                    self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', this agent is already retreating.')
+                    num_alreadyretreating += 1
                 else:
-                    self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!')
+                    num_warnedoff += 1
                     self.marker('Stimulus/Feedback/Reward/On Accuracy')
                     a.enter_retreat(v.getPos(self.city))
                     self.update_score_both(self.threatenaway_bonus)
+        if num_warnedoff > 0:
+            self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!')
+        elif num_alreadyretreating > 0:
+            # note: this message is only issued when there's not already at least one agent who was successfully warned off
+            self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', this agent is already retreating.')
 
     @livecoding
     def handle_client_speech(self,
