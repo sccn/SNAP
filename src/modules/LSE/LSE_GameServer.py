@@ -198,9 +198,9 @@ def generate_positions(scenegraph,                  # the scene graph for which 
     if nearby_to is not None and type(nearby_to) is not list and type(nearby_to) is not tuple:
         nearby_to = [nearby_to]
     if away_radius is not None and type(away_radius) is not list and type(away_radius) is not tuple:
-        away_radius = [away_radius]*len(away_from)
+        away_radius = [away_radius]*len(away_from) if away_from else [away_radius]
     if nearby_radius is not None and type(nearby_radius) is not list and type(nearby_radius) is not tuple:
-        nearby_radius = [nearby_radius]*len(nearby_to)
+        nearby_radius = [nearby_radius]*len(nearby_to) if nearby_to else [nearby_radius]
 
     # go through the position lists and reformat them into Point3 if necessary
     def reformat(l):
@@ -5206,7 +5206,7 @@ class Main(SceneBase):
             oldpos = self.agents[num].getParent().getPos(self.city)
             if time.time() - self.last_reset_time[num] < self.repeat_reset_interval:
                 oldpos.setX(oldpos.getX()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
-                oldpos.setY(oldpos.setY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
+                oldpos.setY(oldpos.getY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
             meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=self.reset_snap_radius)[1])
             # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
             hittest = self.physics.rayTestAll(meshpos,Point3(meshpos.getX(),meshpos.getY(),meshpos.getZ()+self.reset_snap_radius))
