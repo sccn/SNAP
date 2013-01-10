@@ -10,7 +10,7 @@
 # Panda3d
 from direct.task.TaskManagerGlobal import taskMgr
 from direct.task import Task
-from pandac.PandaModules import Vec3, Vec4, Point3, BitMask32, PNMImage, Camera, NodePath, WindowProperties, GeomVertexReader, ConfigVariableSearchPath, TransparencyAttrib, TransformState, VBase4
+from pandac.PandaModules import Vec3, Vec4, Mat4, Point3, BitMask32, PNMImage, Camera, NodePath, WindowProperties, GeomVertexReader, ConfigVariableSearchPath, TransparencyAttrib, TransformState, VBase4
 #noinspection PyUnresolvedReferences
 from panda3d.bullet import BulletTriangleMesh, BulletTriangleMeshShape, BulletRigidBodyNode, BulletHeightfieldShape, BulletWorld, BulletDebugNode, BulletBoxShape, BulletVehicle, ZUp
 
@@ -160,8 +160,8 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                        within_box=None,             # optional box constaint ((minx,maxx),(miny,maxy),(minz,maxz))
 
                        # extra parameters
-                       nearby_radius=500,           # points may be at most this many meters away from any position in nearby_to (can be a scalar or a 3-tuple of numbers for a scaled ellipsoid range)
-                       away_radius=75,              # points have to be at least this many meters away from any position in away_from (can be a scalar or a 3-tuple of numbers for a scaled ellipsoid range)
+                       nearby_radius=500,           # points may be at most this many meters away from any position in nearby_to (can be a scalar or a Point3 for a scaled ellipsoid range, or a list of such values to provide one value for each position in nearby_to)
+                       away_radius=75,              # points have to be at least this many meters away from any position in away_from (can be a scalar or a Point3 for a scaled ellipsoid range, or a list of such values to provide one value for each position in away_from)
                        within_cone_angle = 90,      # angle (e.g., fov) of the conic constraints
                        visibility_params=None,      # optional parameters to override in the visibility check
                        reachability_param='all',    # if 'all', the position needs to be reachable from all points in reachable_from, if 'any' it suffices
@@ -197,6 +197,10 @@ def generate_positions(scenegraph,                  # the scene graph for which 
         away_from = [away_from]
     if nearby_to is not None and type(nearby_to) is not list and type(nearby_to) is not tuple:
         nearby_to = [nearby_to]
+    if away_radius is not None and type(away_radius) is not list and type(away_radius) is not tuple:
+        away_radius = [away_radius]*len(away_from)
+    if nearby_radius is not None and type(nearby_radius) is not list and type(nearby_radius) is not tuple:
+        nearby_radius = [nearby_radius]*len(nearby_to)
 
     # go through the position lists and reformat them into Point3 if necessary
     def reformat(l):
@@ -211,12 +215,12 @@ def generate_positions(scenegraph,                  # the scene graph for which 
     nearby_to = reformat(nearby_to)
 
     # reformat the radius values into Point3 if necessary
-    if nearby_radius is not None:
-        if not (type(nearby_radius) is list or type(nearby_radius) is tuple):
-            nearby_radius = Point3(nearby_radius,nearby_radius,nearby_radius)
-    if away_radius is not None:
-        if not (type(away_radius) is list or type(away_radius) is tuple):
-            away_radius = Point3(away_radius,away_radius,away_radius)
+    for k in range(len(nearby_radius)):
+        if type(nearby_radius[k]) is not Point3:
+            nearby_radius[k] = Point3(nearby_radius[k],nearby_radius[k],nearby_radius[k])
+    for k in range(len(away_radius)):
+        if type(away_radius[k]) is not Point3:
+            away_radius[k] = Point3(away_radius[k],away_radius[k],away_radius[k])
 
     results = []
     for k in range(num_positions):
@@ -256,21 +260,23 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                 break
 
             # check if within radius from each point in nearby_to
-            if (nearby_to is not None) and (nearby_radius is not None):
+            if nearby_to and nearby_radius:
                 if nearby_param == 'all':
                     accept = True
-                    for p in nearby_to:
+                    for k in range(len(nearby_to)):
+                        p = nearby_to[k]
                         diff = (pos - p)
-                        if Point3(diff.getX()/nearby_radius.getX(),diff.getY()/nearby_radius.getY(),diff.getZ()/nearby_radius.getZ()).length() > 1:
+                        if Point3(diff.getX()/nearby_radius[k].getX(),diff.getY()/nearby_radius[k].getY(),diff.getZ()/nearby_radius[k].getZ()).length() > 1:
                             accept = False
                             break
                     if not accept:
                         continue
                 elif nearby_param == 'any':
                     accept = False
-                    for p in nearby_to:
+                    for k in range(len(nearby_to)):
+                        p = nearby_to[k]
                         diff = (pos - p)
-                        if Point3(diff.getX()/nearby_radius.getX(),diff.getY()/nearby_radius.getY(),diff.getZ()/nearby_radius.getZ()).length() < 1:
+                        if Point3(diff.getX()/nearby_radius[k].getX(),diff.getY()/nearby_radius[k].getY(),diff.getZ()/nearby_radius[k].getZ()).length() < 1:
                             accept = True
                             break
                     if not accept:
@@ -279,11 +285,12 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                     print "Nearby_param must be 'any' or 'all'"
 
             # check if outside radius from each point in away_from
-            if (away_from is not None) and (away_radius is not None):
+            if away_from and away_radius:
                 accept = True
-                for p in away_from:
+                for k in range(len(away_from)):
+                    p = away_from[k]
                     diff = (pos - p)
-                    if Point3(diff.getX()/away_radius.getX(),diff.getY()/away_radius.getY(),diff.getZ()/away_radius.getZ()).length() < 1:
+                    if Point3(diff.getX()/away_radius[k].getX(),diff.getY()/away_radius[k].getY(),diff.getZ()/away_radius[k].getZ()).length() < 1:
                         accept = False
                         break
                 if not accept:
@@ -366,6 +373,58 @@ def generate_positions(scenegraph,                  # the scene graph for which 
             break
         print "  generated position within ", retry+1, "attempts."
     return results
+
+@livecoding
+def generate_path(startpos,                    # the starting position of the path
+                  endpos,                      # the end position of the path
+                  num_positions,               # the number of positions to generate (between the endpoints)
+
+                  scenegraph,                  # the scene graph for which the positions shall be generated. Positions will be relative to the root node.
+                  navmesh=None,                # a navmesh on the scene graph to enforce reachability constraints
+                  physics=None,                # a bullet physics world to enforce line-of-sight constraints
+
+                  # placement constraints
+                  objectnames=None,                             # the names of objects to whose surfaces the points should be constrained
+                  min_distance_between_positions=50,            # the minimum direct distance between any two points on the path (starting point is ignored from 2nd pos onward if too close to endpoint)
+                  max_distance_between_succssive_positions=150, # the maximum direct distance between two successive points on the path
+                  no_successive_line_of_sight=False,            # whether successive points should have no line-of-sight to each other
+                  within_box=None,                              # optional overall box constraint for entire path ((minx,maxx),(miny,maxy),(minz,maxz))
+                  max_retries=10000,                            # maximum number of attempts at generating a feasible path
+                  inner_max_retries=200,                        # maximum number of attempts per generated position
+                  ):
+    """ Generate a path through a map between two endpoints with pseudo-random intermediate points. """
+    retry = 0
+    for retry in range(max_retries):
+        cur_path = [startpos]
+        # append nodes...
+        for k in range(1,num_positions):
+            # try to generate a new candidate
+            candidate = generate_positions(
+                scenegraph=scenegraph,
+                navmesh=navmesh,
+                physics=physics,
+                objectnames=objectnames,
+                reachable_from=cur_path[k-1],
+                invisible_from=cur_path[k-1] if no_successive_line_of_sight else None,
+                away_from=cur_path,
+                nearby_to=[cur_path[k-1],endpos],
+                within_box=within_box,
+                away_radius=min_distance_between_positions,
+                nearby_radius=[max_distance_between_successive_positions,(num_positions-k+1)*max_distance_between_successive_positions],
+                max_retries=200)
+            if not candidate:
+                # unsatisfiable; retry new path
+                break
+            cur_path.append(candidate[0])
+        cur_path.append(endpos)
+        if len(cur_path) < num_positions+2:
+            # failed to generate path: retry new path
+            continue
+        # succeeded: return it
+        print "  generated path within ", retry+1, "attempts."
+        return cur_path
+    raise Exception("Failed to generate path through map (check if constraints satisfiable).")
+
 
 @livecoding
 def grid(scr=1,               # 1-based index of the screen (1/2/3)
@@ -732,7 +791,6 @@ class ScoreCounter(BasicStimuli):
         self.marker('Stimulus/Auditory/Recovery, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.recovery_file, self.counter_name, self.client_idx))
 
 
-
 _question_id_generator = itertools.count(1)   # a generator to assign experiment-wide unique id's to questions asked to the subject
 class StimulusQuestion(object):
     """
@@ -982,8 +1040,8 @@ class AttentionSetManager(LatentModule):
                  load_distribution = lambda: random.choice([0,1,1,1,1,1,1,1,2,2]),  # a function that samples the current number of concurrent modalities from a discrete distribution
                  maintenance_duration = lambda: random.uniform(30,90),              # a function that samples the duration for which the current attention set shall be maintained, in seconds
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
-                 blink_count = 5,                                                   # number of blinks performed the attention indicators when they come on
-                 blink_duration = 1,                                                # duration of the blinks (on state & off state, respectively)
+                 blink_count = 25,                                                  # number of blinks performed the attention indicators when they come on
+                 blink_duration = 0.2,                                              # duration of the blinks (on state & off state, respectively)
     ):
         LatentModule.__init__(self)
         self.client_idx = client_idx
@@ -1409,13 +1467,13 @@ class CommTask(LatentModule):
                  numcallsigns=6,                            # subset of callsigns to use
 
                  # probabilities & timing control
-                 lull_time = lambda: random.uniform(30,90),                         # duration of lulls, in seconds (drawn per lull)
+                 lull_time = lambda: random.uniform(20,60),                         # duration of lulls, in seconds (drawn per lull)
                  situation_time = lambda: random.uniform(30,90),                    # duration of developing situations, in seconds (drawn per situation)
                  clearafter = 4,                                                    # clear presenter this many seconds after message display
                  message_interval = lambda: random.uniform(12,30),                  # message interval, in s (drawn per message)
-                 other_callsign_fraction = lambda: random.uniform(0.65,0.85),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
+                 other_callsign_fraction = lambda: random.uniform(0.45,0.55),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
                  no_callsign_fraction = lambda: random.uniform(0.05,0.10),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
-                 time_fraction_until_questions = lambda: random.uniform(0.5,0.8),   # the fraction of time into the situation until the first question comes up (drawn per situation)
+                 time_fraction_until_questions = lambda: random.uniform(0.15,0.35), # the fraction of time into the situation until the first question comes up (drawn per situation)
                                                                                     # in the tutorial mode, this should probably be close to zero
                  questioned_fraction = lambda: random.uniform(0.5,0.8),             # fraction of targeted messages that incur questions
                  post_timeout_silence = lambda: random.uniform(1,3),                # radio silence after a timeout of a question has expired (good idea or not?)
@@ -1683,7 +1741,7 @@ class SatmapTask(BasicStimuli):
                  local_scenegraph,                              # the local world scene graph (used for item placement criteria)
 
                  icons_file='icons_with_labels.txt',            # source file containing a list of sounds and associated queries, as well as correct/incorrect responses
-                 distractor_fraction = 0.6,                     # fraction of distractor events on the satmap (no question asked) (was 0.7
+                 distractor_fraction = 0.4,                     # fraction of distractor events on the satmap (no question asked) (was 0.7)
                  color_question_fraction = 0.5,                 # fraction of questions that is about object color rather than quadrant
                  changes_per_cycle = lambda:random.choice([0,0,1,1,2]), # a function that returns how many things should change per update cycle (additions and removals count separately)
                  satmap_coverage = (180,180),                   # coverage area of the satellite map (horizontal, vertical, in meters)
@@ -2790,6 +2848,70 @@ class InvadingAgent(BasicStimuli):
                 return meshloc_detour
 
 
+class Checkpoint(object):
+    """
+    Represents a movable checkpoint on a map and in 3d views.
+    """
+    def __init__(self,
+                 # rendering output
+                 display_scenegraphs,    # the scene graphs to which the objects should be added
+                 display_funcs,          # the functions to display the instances (signature-compatible with create_worldspace_gizmo); a list of pairs (first one is the constructor, second one the destructor)
+                 display_engines,        # engine instances to load the models...
+                 # display properties
+                 icon = 'icons/star.png',# the icon to use for checkpoints (same on satmap and in 3d worlds)
+                 scale = 2,              # scale of the checkpoint icon
+                 opacity=0.95,           # opacity of the icon
+                 oncamera=True,          # whether the checkpoint is visible on the 3d camera (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
+                 throughwalls=True,      # whether the checkpoint is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
+                 pos=(0,0,0),           # initial position of the checkpoint
+                 ):
+
+        self.display_scenegraphs = display_scenegraphs
+        self.display_funcs = display_funcs
+        self.display_engines = display_engines
+        self.icon = icon
+        self.scale = scale
+        self.opacity = opacity
+        if type(oncamera) is not list:
+            oncamera = [oncamera]*len(self.display_scenegraphs)
+        if type(throughwalls) is not list:
+            throughwalls = [throughwalls]*len(self.display_scenegraphs)
+        self.oncamera = oncamera
+        self.throughwalls = throughwalls
+
+        # run-time variables
+        self.gizmos = []    # holds a list of scene nodes, one per display scene graph
+        self.pos = pos
+
+        # generate it on every output
+        for k in range(len(self.display_scenegraphs)):
+            self.gizmos.append(rpyc.async(self.display_funcs[k][0])(
+                position = self.pos,
+                scale=self.scale,
+                image=self.icon,
+                parent=self.display_graphs[k],
+                engine=self.display_engines[k],
+                color=(1,1,1,self.opacity),
+                oncamera=self.oncamera[k],
+                throughwalls=self.throughwalls[k]))
+        self.marker('Experiment Control/Task/Checkpoint/Create/[%f|%f|%f]' % (self.pos[0],self.pos[1],self.pos[2]))
+
+    @livecoding
+    def move_to(self,pos):
+        """ Move a checkpoint to a new location. """
+        self.pos = pos
+        for g in self.gizmos:
+            rpyc.async(g.setPos)(self.pos[0],self.pos[1],self.pos[2])
+        self.marker('Experiment Control/Task/Checkpoint/Move/[%f|%f|%f]' % (self.pos[0],self.pos[1],self.pos[2]))
+
+    def destroy():
+        """ Remove a checkpoint from the world. """
+        for g in self.gizmos:
+            g.destroy()
+        self.gizmos = []
+        self.marker('Experiment Control/Task/Checkpoint/Remove')
+
+
 
 # =========================================
 # === SCENE LOADING/HANDLING BASE CLASS ===
@@ -2797,7 +2919,7 @@ class InvadingAgent(BasicStimuli):
 
 class SceneBase(LatentModule):
     """
-    Wrapper around a remote intance of the Panda3d engine (self._engine, field of the LatentModule) that contains
+    Wrapper around a (potentially remote) intance of the Panda3d engine (self._engine, field of the LatentModule) that contains
     basic mechanisms for scene graph operations (like loading the world and accessing certain special objects).
     Used as base class by both the game server (e.g., for experimenter's view and collision detection) as well as the
     game clients (for rendering).
@@ -2936,7 +3058,6 @@ class SceneBase(LatentModule):
     def create_agent(self,name):
         """Create an agent instance (actually look it up from what's contained in the scene anyway)."""
         return self.city.find("**/"+name)
-
 
 
 # ==============================
@@ -3240,12 +3361,12 @@ class ClientGame(SceneBase):
             self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
                 command=rpyc.async(self.on_button),extraArgs=[self.right_button_colors[x]],rolloverSound=None,clickSound=None,
                 pos=(self.right_button_x_offsets[x],0,self.right_button_y_offsets[0]),frameSize=self.button_framesize,text=self.right_button_colors[x],scale=self.button_scale)))
-            # add direction buttons
+        # add direction buttons
         for x in range(len(self.right_button_x_offsets)):
             self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
                 command=rpyc.async(self.on_button),extraArgs=[self.right_button_directions[x]],rolloverSound=None,clickSound=None,
                 pos=(self.right_button_x_offsets[x],0,self.right_button_y_offsets[1]),frameSize=self.button_framesize,text=self.right_button_directions[x],scale=self.button_scale)))
-            # add skip button
+        # add skip button
         self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
             command=rpyc.async(self.on_button),extraArgs=['skip'],rolloverSound=None,clickSound=None,
             pos=(self.right_button_skip_pos[0],0,self.right_button_skip_pos[1]),frameSize=self.right_button_skip_framesize,text='skip',scale=self.right_button_skip_scale)))
@@ -3641,11 +3762,8 @@ class Main(SceneBase):
         self.cam_turnrate = 1                                   # turn-rate of the camera
         self.message_pos = (0.5,-0.6)                           # position of the scroll message presenter
         self.score_pos = (1.5,0)                                # position of the score presenter
-        self.checkpoint_icon = 'icons/star.png'                 # the icon that is displayed for checkpoints
         self.checkpoint_height = 2                              # in meters above the ground
         self.camera_fov = 55                                    # in degrees: note that going too high here is risking motion sickness for the players
-        self.checkpoint_scale = 6                               # scale of the checkpoint icon
-        self.checkpoint_star_transparency = 0.95                # transparency of the checkpoint starts (applies to satellite map and 3d viewport)
 
         # vehicular control parameters
         self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others)
@@ -3653,14 +3771,18 @@ class Main(SceneBase):
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15.0                          # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
                                                                 # to narrow steering range at higher speeds
+        self.vehicle_upper_speed = 40                           # in kilometers per hour -- this is where the engine starts to top out
+        self.vehicle_top_speed = 50                             # in kilometers per hour -- the engine cannot accelerate beyond this
+        self.friendly_field_of_view = 90.0                      # the field of view of the agents
+        self.reverse_brake_force_multiplier = 3                 # when braking via the joystick the engine force is multiplied by this
+
+        # vehicle reset action parameters
         self.reset_torqueimpulse = 50                           # corrective torque impulse
         self.reset_linearimpulse = 1500                         # corrective upwards impulse
-        self.friendly_field_of_view = 90.0                      # the field of view of the agents
-        self.vehicle_upper_speed = 40                           # in kilometers per hour -- this is where the engine starts to top out 
-        self.vehicle_top_speed = 50                             # in kilometers per hour -- the engine cannot accelerate beyond this
-        self.reverse_brake_force_multiplier = 3                 # when braking via the joystick the engine force is multiplied by this 
         self.reset_height = 1.5                                 # height at which the vehicle is dropped from the sky for a reset
         self.reset_snap_radius = 50                             # radius within which the agent position will snap to a nearest point on the navigation mesh (in meters)
+        self.repeat_reset_interval = 15                         # if a reset happens within less than this many seconds from the previous one, the position will be slightly jittered
+        self.repeat_reset_jitter = 3                            # maximum jitter amount in meters in case of a repeated reset (in case the subject is stuck in a hole or crevice)
 
         # general physics parameters
         self.physics_solver_stepsize = 0.008                    # internal clock of the physics simulation, in seconds
@@ -3728,7 +3850,9 @@ class Main(SceneBase):
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
         self.pancam_wanderer_range = (150,150)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
-        self.checkpoint_count = 20                              # number of checkpoints to go through
+        self.checkpoint_count = (10,20)                         # number of checkpoints to go through
+        self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
+        self.checkpoint_max_distance = 150                      # maximum direct distance between any two successive checkpoints on a tour
         self.report_field_of_view = 15                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
         self.double_report_cutoff = 5                           # if an agent is being reported within shorter succession than this many seconds it counts as a double report
         self.potentially_visible_cutoff = 3                     # if an agent was potentially visible for longer than this, and has not been reported before it went away
@@ -3790,8 +3914,8 @@ class Main(SceneBase):
 
         self.wanderers = []                                     # randomly wandering agents
         self.invaders = []                                      # agents that invade a particular location (= the truck)
+        self.checkpoint = None                                  # the current mission checkpoint, if any
         self.controllables = []                                 # agents that can be controlled by voice
-        self.checkpoint_gizmos = []                             # 3d gizmos for the checkpoints
         self.last_modality = False                              # true if the last response modality was speech
         self.same_modality_repeats = 0                          # number of successive responses in the same modality (speech versus button)
 
@@ -3974,10 +4098,6 @@ class Main(SceneBase):
         self.message_presenter = ScrollPresenter.ScrollPresenter(pos=self.message_pos)
         self.score_presenter = TextPresenter.TextPresenter(pos=self.score_pos,framecolor=[0,0,0,0])
 
-        # init client GUIs
-        for cl in self.clients:
-            cl.init_gui()
-
         # add experimenter camera controls
         self.accept('w',self.on_up); self.accept('w-repeat',self.on_up)
         self.accept('s',self.on_down); self.accept('s-repeat',self.on_down)
@@ -3989,6 +4109,10 @@ class Main(SceneBase):
         self.accept('t',self.on_reverse); self.accept('t-repeat',self.on_reverse)
         self.accept('f',self.on_turnup); self.accept('f-repeat',self.on_turnup)
         self.accept('g',self.on_turndown); self.accept('g-repeat',self.on_turndown)
+
+        # init client GUIs
+        for cl in self.clients:
+            cl.init_gui()
 
     @livecoding
     def init_static_world(self):
@@ -4135,12 +4259,23 @@ class Main(SceneBase):
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
             # add checkpoint gizmo
-            self.checkpoint_new(self.vehicle_idx,oncamera=True,throughwalls=True)
+            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx],oncamera=True,throughwalls=true )
+            # generate new checkpoint sequence
+            self.checkpoints = generate_path(
+                startpos=self.truck_pos,
+                endpos=self.truck_pos,
+                num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
+                scenegraph=self.city,
+                navmesh=self.mesh,
+                physics=self.physsics,
+                objectnames=('Concrete'),
+                min_distance_between_positions=self.checkpoint_min_distance,
+                max_distance_between_succssive_positions=self.checkpoint_max_distance)
             # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the gizmo
                 pos = self.checkpoints[cp]
-                self.checkpoint_move(pos)
+                self.checkpoint.move_to(pos)
                 # while not succeeded...
                 while (self.agents[self.vehicle_idx].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance:
                     self.sleep(1)
@@ -4151,7 +4286,8 @@ class Main(SceneBase):
                 self.sleep(3)
         finally:
             # cleanup
-            self.checkpoint_remove()
+            if self.checkpoint:
+                self.checkpoint.destroy()
             taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
@@ -4264,13 +4400,24 @@ class Main(SceneBase):
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
+            # generate new checkpoint sequence
+            self.checkpoints = generate_path(
+                startpos=self.truck_pos,
+                endpos=self.truck_pos,
+                num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
+                scenegraph=self.city,
+                navmesh=self.mesh,
+                physics=self.physsics,
+                objectnames=('Concrete'),
+                min_distance_between_positions=self.checkpoint_min_distance,
+                max_distance_between_succssive_positions=self.checkpoint_max_distance)
             # show gizmo on all clients
-            self.checkpoint_new([0,1], oncamera=True,throughwalls=True)
+            self.checkpoint = self.create_checkpoint(visible_to=[0,1],oncamera=True,throughwalls=true)
             # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the checkpoint
                 pos = self.checkpoints[cp]
-                self.checkpoint_move(pos)
+                self.checkpoint.move_to(pos)
                 # while not succeeded...
                 while ((self.agents[0].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance) or \
                       ((self.agents[1].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance):
@@ -4290,7 +4437,8 @@ class Main(SceneBase):
                 self.sleep(3)
         finally:
             # cleanup
-            self.checkpoint_remove()
+            if self.checkpoint:
+                self.checkpoint.destroy()
             taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
@@ -4312,6 +4460,17 @@ class Main(SceneBase):
             self.clients[self.aerial_idx].viewport_instructions.submit('The next point is marked on the map with a star. Ensure that the other player avoids contact with hostile entities.')
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
+            # generate new checkpoint sequence
+            self.checkpoints = generate_path(
+                startpos=self.truck_pos,
+                endpos=self.truck_pos,
+                num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
+                scenegraph=self.city,
+                navmesh=self.mesh,
+                physics=self.physsics,
+                objectnames=('Concrete'),
+                min_distance_between_positions=self.checkpoint_min_distance,
+                max_distance_between_succssive_positions=self.checkpoint_max_distance)
             # set up periodic score update
             taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]], appendTask=True)
             # move the agent up into the air (by gradually ramping up the force)
@@ -4324,12 +4483,12 @@ class Main(SceneBase):
                 self.rise_force_offset = self.rise_force_offset_max * fraction
                 self.sleep(0.05)                                     
             # add checkpoint gizmos for the players (but the vehicle player does not get to see them through walls)
-            self.checkpoint_new([self.vehicle_idx,self.aerial_idx], oncamera=True,throughwalls=[False,True])
+            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx,self.aerial_idx],oncamera=True,throughwalls=[False,True])
             # for each checkpoint...
             for cp in range(len(self.checkpoints)):
                 # move the checkpoint
                 pos = self.checkpoints[cp]
-                self.checkpoint_move(pos)
+                self.checkpoint.move_to(pos)
                 # while not succeeded...
                 while True:
                     vehicle_pos = self.agents[self.vehicle_idx].getPos(self.city)
@@ -4354,7 +4513,8 @@ class Main(SceneBase):
                 self.update_score_both(self.checkpoint_reach_bonus)
                 self.sleep(3)
         finally:
-            self.checkpoint_remove()        
+            if self.checkpoint:
+                self.checkpoint.destroy()
             self.destroy_wanderers()
             taskMgr.remove('UpdateScorePeriodic')
 
@@ -4954,7 +5114,7 @@ class Main(SceneBase):
             self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!')
         elif num_alreadyretreating > 0:
             # note: this message is only issued when there's not already at least one agent who was successfully warned off
-            self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', this agent is already retreating.')
+            self.clients[idx].viewport_instructions.submit('This agent is already retreating.')
 
     @livecoding
     def handle_client_speech(self,
@@ -5043,7 +5203,11 @@ class Main(SceneBase):
             self.vehicles[num].getChassis().setAngularVelocity(Vec3(0,0,0))
 
             # find a nearby point on the navmesh to reset to
-            meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=self.agents[num].getParent().getPos(self.city), radius=self.reset_snap_radius)[1])
+            oldpos = self.agents[num].getParent().getPos(self.city)
+            if time.time() - self.last_reset_time[num] < self.repeat_reset_interval:
+                oldpos.setX(oldpos.getX()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
+                oldpos.setY(oldpos.setY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
+            meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=self.reset_snap_radius)[1])
             # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
             hittest = self.physics.rayTestAll(meshpos,Point3(meshpos.getX(),meshpos.getY(),meshpos.getZ()+self.reset_snap_radius))
             if hittest.getNumHits() > 0:
@@ -5094,52 +5258,17 @@ class Main(SceneBase):
         self.static_idx = self.agent_control.index('static') if 'static' in self.agent_control else None
         self.panning_idx = self.agent_control.index('panning') if 'panning' in self.agent_control else None
 
-    @livecoding    
-    def checkpoint_new(self,
-                       client_indices,      # list of client indices for whom to create the checkpoint (besides the experimenter, who always gets to see them)
-                       oncamera=True,       # whether the checkpoint is visible on the 3d camera (can also be a list of booleans, e.g. [True,False], to assign a different setting per client)
-                       throughwalls=True,   # whether the checkpoint is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per client)
-                       pos=(0,0,0)):        # initial position of the checkpoint  
-        """ Create a new checkpoint in the world. """
-        self.checkpoint_gizmos = []
-        self.checkpoint_gizmos.append(create_worldspace_gizmo(
-            image=self.checkpoint_icon,
-            scale=self.checkpoint_scale,
-            position=pos,
-            parent=self.city,
-            engine=self._engine,
-            color=(1,1,1,self.checkpoint_star_transparency),
-            oncamera=True))
-        if type(client_indices) is not list:
-            client_indices = [client_indices]
-        if type(oncamera) is not list:
-            oncamera = [oncamera]*len(client_indices)
-        if type(throughwalls) is not list:
-            throughwalls = [throughwalls]*len(client_indices)
-        for c in client_indices:
-            self.checkpoint_gizmos.append(rpyc.async(self.clients[c].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo)(
-                image=self.checkpoint_icon,
-                parent=self.clients[c].city,
-                engine=self.clients[c]._engine,
-                color=(1,1,1,self.checkpoint_star_transparency),
-                oncamera=oncamera[c],
-                throughwalls=throughwalls[c]))
-        self.marker('Experiment Control/Task/Checkpoint/Create/[%f|%f|%f]' % (pos[0],pos[1],pos[2]))
-
     @livecoding
-    def checkpoint_move(self,pos):
-        """ Move a checkpoint to a new location. """
-        for g in self.checkpoint_gizmos:
-            rpyc.async(g.setPos)(pos[0],pos[1],pos[2])
-        self.marker('Experiment Control/Task/Checkpoint/Move/[%f|%f|%f]' % (pos[0],pos[1],pos[2]))
-
-    @livecoding
-    def checkpoint_remove(self):
-        """ Remove a checkpoint from the world. """
-        for g in self.checkpoint_gizmos:
-            g.destroy()
-        self.checkpoint_gizmos = []
-        self.marker('Experiment Control/Task/Checkpoint/Remove')
+    def create_checkpoint(self,
+                          visible_to,   # indices of the clients who should be able to see the checkpoint
+                          *args,
+                          **kwargs):
+        """Helper function to create a new checkpoint object with the correct display parameters set up. """
+        return Checkpoint(
+            display_scenegraphs=[self.city] + [self.clients[k].city for k in visible_to],
+            display_funcs=[(create_worldspace_gizmo,destroy_worldspace_gizmo)] + [(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to],
+            display_engines=[self._engine] + [self.clients[k]._engine for k in visible_to],
+            *args,**kwargs)
 
 
     # ================
