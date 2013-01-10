@@ -4259,7 +4259,7 @@ class Main(SceneBase):
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
             # add checkpoint gizmo
-            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx],oncamera=True,throughwalls=true )
+            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx],oncamera=True,throughwalls=True )
             # generate new checkpoint sequence
             self.checkpoints = generate_path(
                 startpos=self.truck_pos,
