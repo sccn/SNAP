@@ -18,6 +18,10 @@ class BasicStimuli:
         def destroy(self):
             for o in self.objs:
                 o.destroy()
+        # support for some occasionally useful functions (TODO: forward all calls to the objs)
+        def setColor(self,r,g,b,a):
+            for o in self.objs:
+                o.setColor(r,g,b,a)
 
     def __init__(self):
         self.set_engine(base=base,direct=direct,pandac=pandac.PandaModules)        

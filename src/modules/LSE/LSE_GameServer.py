@@ -435,6 +435,8 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
          bo=0.05,             # left/right, top/botton border of each screen, as a fraction of screen height; can be a scalar or a (x,y) tuple
          ma=0.025,            # x/y margin between cells, as a fraction of screen height; can be a scalar or a (x,y) tuple (1/2 margin exists around each cell)
          sys='aspect2d',      # output coordinate system (can be 'render2d', 'aspect2d', 'normalized', or 'window')
+         exp=0.0,             # expand the cell size by this value (a fraction of screen height; can be a scalar or a (x,y) tuple
+         mov=0.0,             # movement to the cell position (a fraction of screen height; can be a scalar or a (x,y) tuple
          ):
     """
     Calculate screen coordinates from positions on a virtual 2d grid on a given screen.
@@ -487,6 +489,22 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
         xma = ma
         yma = ma
 
+    # parse expansion
+    if type(exp) is tuple or type(exp) is list and len(exp)==2:
+        xexp = exp[0]
+        yexp = exp[1]
+    else:
+        xexp = exp
+        yexp = exp
+
+    # parse cell movement
+    if type(mov) is tuple or type(mov) is list and len(mov)==2:
+        xmov = mov[0]
+        ymov = mov[1]
+    else:
+        xmov = mov
+        ymov = mov
+
     # parse x/y
     if x:
         xg = x[1]   # x grid dim
@@ -501,9 +519,11 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
 
     aspect = screen_aspect
 
-    # rescale margins and borders to absolute size
+    # rescale all height-relative parameters to be aspect-correct
     xbo /= aspect
     xma /= aspect
+    xexp /= aspect
+    xmov /= aspect
     if xg:
         xma /= (1.0/float(xg) * (1.0/len(screen_shuffle) - 2*xbo))
     if yg:
@@ -532,8 +552,18 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
     ny = ybo + ((y-1 + y_off)/float(yg))*(1.0-2*ybo) if y else None
     if not (nx or ny):
         raise Exception('At least one coordinate must be specified.')
-    if sys == 'normalized':
-        return result(nx,ny)
+
+    # apply cell expansion
+    if ny and yexp and not yal == 'center':
+        ny += -yexp if yal == 'top' else yexp
+    if nx and xexp and not xal == 'center':
+        nx += -xexp if xal == 'left' else xexp
+
+    # apply cell movement
+    if ny and ymov:
+        ny += ymov
+    if nx and xmov:
+        nx += xmov
 
     # convert into window coordinates (bottom/left)
     if ny:
@@ -1119,6 +1149,7 @@ class AttentionSetManager(LatentModule):
                     # turn off
                     for regionname in now_focused:
                         self.indicators[regionname][0]()
+                    self.sleep(self.blink_duration)
                 # finally turn on and stay on
                 for regionname in now_focused:
                     self.indicators[regionname][1]()
@@ -3124,11 +3155,14 @@ class ClientGame(SceneBase):
         self.audiocomm_gizmo_pic = str(ConfigVariableSearchPath('model-path').findFile('icons\\comm.png')) # picture of the audiocomm icon
         self.gizmo_corner_offset = 0.13
 
-        # attention indicators
-        self.attention_indicator_size = 0.075               # size of the attention indicator lamp (usually in the upper left corner of every widget)
-        self.attention_indicator_on = str(ConfigVariableSearchPath('model-path').findFile('icons\\indicator_on.png'))   # on picture (lamp illuminated)
-        self.attention_indicator_off = str(ConfigVariableSearchPath('model-path').findFile('icons\\indicator_off.png')) # off picture (lamp off)
-        self.attention_indicator_hidden = str(ConfigVariableSearchPath('model-path').findFile('transparent.png'))         # transparent picture (lamp hidden)
+        # attention indicator frames
+        self.text_attention_frame = rect(grid(1,(1,1),(3,5),'topleft',exp=(0.02,0.03)),grid(1,(1,1),(3,5),'bottomright',exp=(0.02,0.03)))
+        self.viewport_attention_frame = rect(grid(2,(1,1),(2,5),'topleft',exp=(0.02,0.015)),grid(2,(1,1),(4,5),'bottomright',exp=(0.02,0.015)))
+        self.satmap_attention_frame = rect(grid(3,(1,1),(2,5),'topleft',exp=(0.02,0.015)),grid(3,(1,1),(4,5),'bottomright',exp=(0.02,0.015)))
+        self.vocal_attention_frame = (self.audiocomm_gizmo_pos[0]-self.audiocomm_gizmo_size-0.02,self.audiocomm_gizmo_pos[0]+self.audiocomm_gizmo_size+0.02,
+                                      self.audiocomm_gizmo_pos[1]+self.audiocomm_gizmo_size+0.02,self.audiocomm_gizmo_pos[1]-self.audiocomm_gizmo_size-0.02)
+        self.sound_attention_frame = (self.sound_gizmo_pos[0]-self.sound_gizmo_size-0.02,self.sound_gizmo_pos[0]+self.sound_gizmo_size+0.02,
+                                      self.sound_gizmo_pos[1]+self.sound_gizmo_size+0.02,self.sound_gizmo_pos[1]-self.sound_gizmo_size-0.02)
 
         # satellite map parameter
         self.satmap_pos = grid(3,(1,1),(2,5),'topleft')     # position of the satellite map upper left corner (aspect2d coordinates)
@@ -3321,37 +3355,30 @@ class ClientGame(SceneBase):
     @livecoding
     def init_attention_indicators(self):
         """ Initialize attention indicator lamps for various tasks. """
-        # attention indicator lamps
-        self.text_attention_indicator = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.ImagePresenter.ImagePresenter(
-            image=self.attention_indicator_off,pos=self.comm_message_pos,scale=self.attention_indicator_size))
-        self.viewport_attention_indicator = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.ImagePresenter.ImagePresenter(
-            image=self.attention_indicator_off,pos=self.viewport_corner_pos,scale=self.attention_indicator_size))
-        self.satmap_attention_indicator = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.ImagePresenter.ImagePresenter(
-            pos=self.satmap_pos,scale=self.attention_indicator_size)) # initially no image and hidden...
-        self.vocal_attention_indicator = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.ImagePresenter.ImagePresenter(
-            image=self.attention_indicator_off,
-            pos=(self.audiocomm_gizmo_pos[0]-self.gizmo_corner_offset,self.audiocomm_gizmo_pos[1]+self.gizmo_corner_offset),
-            scale=self.attention_indicator_size))
-        self.sound_attention_indicator = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.ImagePresenter.ImagePresenter(
-            image=self.attention_indicator_off,
-            pos=(self.sound_gizmo_pos[0]-self.gizmo_corner_offset,self.sound_gizmo_pos[1]+self.gizmo_corner_offset),
-            scale=self.attention_indicator_size))
+
+        # attention indicator frames
+        self.text_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.text_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
+        self.viewport_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.viewport_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
+        self.satmap_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.satmap_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
+        self.vocal_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.vocal_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
+        self.sound_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.sound_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
+
         # pairs of functions to turn various attention indocators on or off
-        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.submit(self.attention_indicator_off),
-                                               lambda: self.text_attention_indicator.submit(self.attention_indicator_on),
-                                               lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.submit(self.attention_indicator_off),
-                                                lambda: self.vocal_attention_indicator.submit(self.attention_indicator_on),
-                                                lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.submit(self.attention_indicator_off),
-                                                lambda: self.sound_attention_indicator.submit(self.attention_indicator_on),
-                                                lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.submit(self.attention_indicator_off),
-                                                   lambda: self.viewport_attention_indicator.submit(self.attention_indicator_on),
-                                                   lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
-        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.submit(self.attention_indicator_off),
-                                                 lambda: self.satmap_attention_indicator.submit(self.attention_indicator_on),
-                                                 lambda: self.text_attention_indicator.submit(self.attention_indicator_hidden)]
+        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.setColor(0,0,0,0),
+                                               lambda: self.text_attention_indicator.setColor(1,1,1,1),
+                                               lambda: self.text_attention_indicator.setColor(0,0,0,0)]
+        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.setColor(0,0,0,0),
+                                                lambda: self.vocal_attention_indicator.setColor(1,1,1,1),
+                                                lambda: self.vocal_attention_indicator.setColor(0,0,0,0)]
+        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.setColor(0,0,0,0),
+                                                lambda: self.sound_attention_indicator.setColor(1,1,1,1),
+                                                lambda: self.sound_attention_indicator.setColor(0,0,0,0)]
+        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.setColor(0,0,0,0),
+                                                   lambda: self.viewport_attention_indicator.setColor(1,1,1,1),
+                                                   lambda: self.viewport_attention_indicator.setColor(0,0,0,0)]
+        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.setColor(0,0,0,0),
+                                                 lambda: self.satmap_attention_indicator.setColor(1,1,1,1),
+                                                 lambda: self.satmap_attention_indicator.setColor(0,0,0,0)]
 
     @livecoding
     def init_touch_buttons(self):
@@ -3721,7 +3748,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 2                                    # permutation number; used to determine the mission mix
+        self.permutation = 1                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
 
@@ -3741,8 +3768,8 @@ class Main(SceneBase):
         self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
         self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
 
-        #self.world_types = ['LSE_Mark2_tiny_zup']              # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph 
-                                                                # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it        
+        #self.world_types = ['LSE_Mark2_tiny_new']              # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        #                                                        # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
         #self.terrain_types = ['LSE_desertplains_smooth']       # the possible terrain types
         #self.agent_names = ["PlayerA","PlayerB"]               # name of the agent objects in the world map
         #self.truck_name = "Truck"
@@ -3823,6 +3850,7 @@ class Main(SceneBase):
 
         # panning control parameters
         self.pan_speed = 10                                     # speed at which the camera pans
+        self.report_repeat_press_interval = 0.75                # if the report button is held down for longer than this, a second report action will be triggered
 
         # wandering agent parameters
         self.wanderer_count = 10                                # number of hostile wanderers in some of the checkpoint missions
@@ -5078,13 +5106,14 @@ class Main(SceneBase):
             counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
             if counts_as_report:
                 report_valid = True
-                if now - a.last_report_time[c] < self.double_report_cutoff:
-                    # reporting the same object in too short succession
-                    self.clients[c].overall_score.score_event(self.pancam_double_loss)
-                else:
-                    # valid report
-                    self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
-                a.last_report_time[c] = now
+                if now - a.last_report_time[c] > self.report_repeat_press_interval:
+                    if now - a.last_report_time[c] < self.double_report_cutoff:
+                        # reporting the same object in too short succession
+                        self.clients[c].overall_score.score_event(self.pancam_double_loss)
+                    else:
+                        # valid report
+                        self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
+                    a.last_report_time[c] = now
         if not report_valid:
             self.clients[c].overall_score.score_event(self.pancam_false_loss)
 
