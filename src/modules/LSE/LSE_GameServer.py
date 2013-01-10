@@ -390,14 +390,14 @@ def generate_path(startpos,                    # the starting position of the pa
                   no_successive_line_of_sight=False,            # whether successive points should have no line-of-sight to each other
                   within_box=None,                              # optional overall box constraint for entire path ((minx,maxx),(miny,maxy),(minz,maxz))
                   max_retries=10000,                            # maximum number of attempts at generating a feasible path
-                  inner_max_retries=200,                        # maximum number of attempts per generated position
+                  inner_max_retries=300,                        # maximum number of attempts per generated position
                   ):
     """ Generate a path through a map between two endpoints with pseudo-random intermediate points. """
     retry = 0
     for retry in range(max_retries):
         cur_path = [startpos]
         # append nodes...
-        for k in range(1,num_positions):
+        for k in range(1,num_positions+1):
             # try to generate a new candidate
             candidate = generate_positions(
                 scenegraph=scenegraph,
@@ -406,14 +406,15 @@ def generate_path(startpos,                    # the starting position of the pa
                 objectnames=objectnames,
                 reachable_from=cur_path[k-1],
                 invisible_from=cur_path[k-1] if no_successive_line_of_sight else None,
-                away_from=cur_path,
+                away_from=cur_path[1:] if (startpos-endpos).length() < min_distance_between_positions and k>1 else cur_path, # we exclude the startpos from the min-distance constraints if it's too close to the end pos (except for the first path point, where we always respect it)
                 nearby_to=[cur_path[k-1],endpos],
                 within_box=within_box,
                 away_radius=min_distance_between_positions,
                 nearby_radius=[max_distance_between_successive_positions,(num_positions-k+1)*max_distance_between_successive_positions],
-                max_retries=200)
+                max_retries=inner_max_retries)
             if not candidate:
                 # unsatisfiable; retry new path
+                print "  found unsatisfiable at position " + str(k) + "."
                 break
             cur_path.append(candidate[0])
         cur_path.append(endpos)
@@ -4264,7 +4265,7 @@ class Main(SceneBase):
             self.checkpoints = generate_path(
                 startpos=self.truck_pos,
                 endpos=self.truck_pos,
-                num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
+                num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
                 scenegraph=self.city,
                 navmesh=self.navcrowd.nav,
                 physics=self.physics,
@@ -4398,7 +4399,7 @@ class Main(SceneBase):
             self.checkpoints = generate_path(
                 startpos=self.truck_pos,
                 endpos=self.truck_pos,
-                num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
+                num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
                 scenegraph=self.city,
                 navmesh=self.navcrowd.nav,
                 physics=self.physics,
@@ -4463,7 +4464,7 @@ class Main(SceneBase):
             self.checkpoints = generate_path(
                 startpos=self.truck_pos,
                 endpos=self.truck_pos,
-                num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
+                num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
                 scenegraph=self.city,
                 navmesh=self.navcrowd.nav,
                 physics=self.physics,
