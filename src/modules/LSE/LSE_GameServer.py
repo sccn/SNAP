@@ -386,7 +386,7 @@ def generate_path(startpos,                    # the starting position of the pa
                   # placement constraints
                   objectnames=None,                             # the names of objects to whose surfaces the points should be constrained
                   min_distance_between_positions=50,            # the minimum direct distance between any two points on the path (starting point is ignored from 2nd pos onward if too close to endpoint)
-                  max_distance_between_succssive_positions=150, # the maximum direct distance between two successive points on the path
+                  max_distance_between_successive_positions=150, # the maximum direct distance between two successive points on the path
                   no_successive_line_of_sight=False,            # whether successive points should have no line-of-sight to each other
                   within_box=None,                              # optional overall box constraint for entire path ((minx,maxx),(miny,maxy),(minz,maxz))
                   max_retries=10000,                            # maximum number of attempts at generating a feasible path
@@ -1064,7 +1064,6 @@ class AttentionSetManager(LatentModule):
         if self.available_subset is None:
             self.available_subset = self.region_names
         self.log_setup_parameters()
-        prev_active_regions = []
 
         # start with a half-length lull period
         self.sleep(self.maintenance_duration()/2)
@@ -2848,7 +2847,7 @@ class InvadingAgent(BasicStimuli):
                 return meshloc_detour
 
 
-class Checkpoint(object):
+class Checkpoint(BasicStimuli):
     """
     Represents a movable checkpoint on a map and in 3d views.
     """
@@ -2865,6 +2864,7 @@ class Checkpoint(object):
                  throughwalls=True,      # whether the checkpoint is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
                  pos=(0,0,0),           # initial position of the checkpoint
                  ):
+        BasicStimuli.__init__(self)
 
         self.display_scenegraphs = display_scenegraphs
         self.display_funcs = display_funcs
@@ -2889,7 +2889,7 @@ class Checkpoint(object):
                 position = self.pos,
                 scale=self.scale,
                 image=self.icon,
-                parent=self.display_graphs[k],
+                parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
                 color=(1,1,1,self.opacity),
                 oncamera=self.oncamera[k],
@@ -2904,7 +2904,7 @@ class Checkpoint(object):
             rpyc.async(g.setPos)(self.pos[0],self.pos[1],self.pos[2])
         self.marker('Experiment Control/Task/Checkpoint/Move/[%f|%f|%f]' % (self.pos[0],self.pos[1],self.pos[2]))
 
-    def destroy():
+    def destroy(self):
         """ Remove a checkpoint from the world. """
         for g in self.gizmos:
             g.destroy()
@@ -4042,7 +4042,7 @@ class Main(SceneBase):
                 for k in range(len(self.mission_order)-1):
                     # avoid the same mission twice in a row
                     if self.mission_order[k] == self.mission_order[k+1]:
-                        num_dups = num_dups+1
+                        num_dups += 1
                 if num_dups * 1.0 / (len(self.mission_order)-1) > self.max_repeat_fraction:
                     okay = False
                     break
@@ -4266,11 +4266,11 @@ class Main(SceneBase):
                 endpos=self.truck_pos,
                 num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
                 scenegraph=self.city,
-                navmesh=self.mesh,
-                physics=self.physsics,
+                navmesh=self.navcrowd.nav,
+                physics=self.physics,
                 objectnames=('Concrete'),
                 min_distance_between_positions=self.checkpoint_min_distance,
-                max_distance_between_succssive_positions=self.checkpoint_max_distance)
+                max_distance_between_successive_positions=self.checkpoint_max_distance)
             # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the gizmo
@@ -4308,7 +4308,7 @@ class Main(SceneBase):
             v_pos = v.getPos(self.city)
             box_constraint = ((v_pos[0]-self.pancam_wanderer_range[0]/2,v_pos[0]+self.pancam_wanderer_range[0]/2),(v_pos[1]-self.pancam_wanderer_range[1]/2,v_pos[1]+self.pancam_wanderer_range[1]/2),(-10000,10000))
 
-            self.create_wanderers(self.pan_wanderer_count)
+            self.create_wanderers(self.pan_wanderer_count,box_constraint=box_constraint)
             accept_message = self.clients[self.panning_idx].tag + '-report'
             self.accept(accept_message, lambda: self.on_report(self.panning_idx))
             # show instructions
@@ -4394,25 +4394,24 @@ class Main(SceneBase):
             for cl in self.clients:
                 cl.toggle_satmap(True)
             self.reset_control_scheme(['vehicle','vehicle'])
-            # show the instructions                    
-            self.broadcast_message('move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
-            self.broadcast_message('you have %i minutes to make it through the next %i checkpoints.' % (self.checkpoint_timeout,self.checkpoint_count), no_callsign=True)
-            self.sleep(5)
-            # set up periodic score update
-            taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
             # generate new checkpoint sequence
             self.checkpoints = generate_path(
                 startpos=self.truck_pos,
                 endpos=self.truck_pos,
                 num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
                 scenegraph=self.city,
-                navmesh=self.mesh,
-                physics=self.physsics,
+                navmesh=self.navcrowd.nav,
+                physics=self.physics,
                 objectnames=('Concrete'),
                 min_distance_between_positions=self.checkpoint_min_distance,
-                max_distance_between_succssive_positions=self.checkpoint_max_distance)
+                max_distance_between_successive_positions=self.checkpoint_max_distance)
+            # show the instructions
+            self.broadcast_message('move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
+            self.sleep(5)
+            # set up periodic score update
+            taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
             # show gizmo on all clients
-            self.checkpoint = self.create_checkpoint(visible_to=[0,1],oncamera=True,throughwalls=true)
+            self.checkpoint = self.create_checkpoint(visible_to=[0,1],oncamera=True,throughwalls=True)
             # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the checkpoint
@@ -4466,11 +4465,11 @@ class Main(SceneBase):
                 endpos=self.truck_pos,
                 num_positions=random.uniform(self.checkpoint_count[0],self.checkpoint_count[1]),
                 scenegraph=self.city,
-                navmesh=self.mesh,
-                physics=self.physsics,
+                navmesh=self.navcrowd.nav,
+                physics=self.physics,
                 objectnames=('Concrete'),
                 min_distance_between_positions=self.checkpoint_min_distance,
-                max_distance_between_succssive_positions=self.checkpoint_max_distance)
+                max_distance_between_successive_positions=self.checkpoint_max_distance)
             # set up periodic score update
             taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]], appendTask=True)
             # move the agent up into the air (by gradually ramping up the force)
@@ -5261,14 +5260,13 @@ class Main(SceneBase):
     @livecoding
     def create_checkpoint(self,
                           visible_to,   # indices of the clients who should be able to see the checkpoint
-                          *args,
                           **kwargs):
         """Helper function to create a new checkpoint object with the correct display parameters set up. """
         return Checkpoint(
             display_scenegraphs=[self.city] + [self.clients[k].city for k in visible_to],
             display_funcs=[(create_worldspace_gizmo,destroy_worldspace_gizmo)] + [(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to],
             display_engines=[self._engine] + [self.clients[k]._engine for k in visible_to],
-            *args,**kwargs)
+            **kwargs)
 
 
     # ================
