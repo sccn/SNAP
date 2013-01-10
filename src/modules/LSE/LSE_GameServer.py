@@ -1071,8 +1071,8 @@ class AttentionSetManager(LatentModule):
                  load_distribution = lambda: random.choice([0,1,1,1,1,1,1,1,2,2]),  # a function that samples the current number of concurrent modalities from a discrete distribution
                  maintenance_duration = lambda: random.uniform(30,90),              # a function that samples the duration for which the current attention set shall be maintained, in seconds
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
-                 blink_count = 25,                                                  # number of blinks performed the attention indicators when they come on
-                 blink_duration = 0.2,                                              # duration of the blinks (on state & off state, respectively)
+                 blink_count = 4,                                                   # number of blinks performed the attention indicators when they come on
+                 blink_duration = 0.75,                                             # duration of the blinks (on state & off state, respectively)
     ):
         LatentModule.__init__(self)
         self.client_idx = client_idx
@@ -1136,31 +1136,46 @@ class AttentionSetManager(LatentModule):
 
             # update the visibility of the region activity indicators
             try:
-                # disable now unfocused regions
-                for regionname in set(self.prev_active_regions).difference(set(self.active_regions)):
-                    self.indicators[regionname][0]()
-                # enable the now focused regions, blink k times
+                # fade out the now unfocused regions
+                now_unfocused = set(self.prev_active_regions).difference(set(self.active_regions))
+                self.fade_indicators(1,0,self.blink_duration,now_unfocused)
+                # fade in the now focused regions
                 now_focused = set(self.active_regions).difference(set(self.prev_active_regions))
+                print "Client",self.client_idx,", active: ",self.active_regions
+                self.fade_indicators(0,1,self.blink_duration,now_focused)
+                # fade out and back in for a few times
                 for k in range(self.blink_count):
-                    # turn on
-                    for regionname in now_focused:
-                        self.indicators[regionname][1]()
-                    self.sleep(self.blink_duration)
-                    # turn off
-                    for regionname in now_focused:
-                        self.indicators[regionname][0]()
-                    self.sleep(self.blink_duration)
-                # finally turn on and stay on
-                for regionname in now_focused:
-                    self.indicators[regionname][1]()
+                    self.fade_indicators(1,0,self.blink_duration,now_focused)
+                    self.fade_indicators(0,1,self.blink_duration,now_focused)
+                # ensure that everything is in the correct visibility state
+                for regionname in self.active_regions:
+                    self.indicators[regionname](1)
+                for regionname in set(self.region_names).difference(set(self.active_regions)):
+                    self.indicators[regionname](0)
             except Exception as e:
                 print e
                 traceback.print_exc()
                 send_marker('Experiment Control/Status/Error/%s' % (str(e),))
 
+            self.sleep(self.maintenance_duration() - 2*self.blink_duration*self.blink_count)
             self.prev_active_regions = self.active_regions
 
-            self.sleep(self.maintenance_duration() - 2*self.blink_duration*self.blink_count)
+    def fade_indicators(self,from_val,to_val,duration,region_subset):
+        """ Fade a subset of attention indicators in or out. """
+        tstart = time.time()
+        tend = tstart + duration
+        while True:
+            now = time.time()
+            visibility = smoothstep((now-tstart)/duration,from_val,to_val)
+            for regionname in region_subset:
+                self.indicators[regionname](visibility)
+            if now > tend:
+                break
+            self.sleep(0.05)
+        # ensure that they have the correct final value
+        for regionname in region_subset:
+            self.indicators[regionname](to_val)
+
 
     def mask_regions(self,mask):
         """ Apply a mask of possible active regions. """
@@ -1171,16 +1186,41 @@ class AttentionSetManager(LatentModule):
             if r in mask:
                 if r in self.active_regions:
                     # enabled
-                    self.indicators[r][1]()
+                    self.indicators[r](1)
+                    # focused
+                    for focusable in self.regions[r]:
+                        try:
+                            if type(focusable) is tuple:
+                                focusable[1]()
+                            else:
+                                focusable.focused = True
+                        except:
+                            print "Could not set unfocused state during region mask (" + r +")"
                 else:
-                    # diabled
-                    self.indicators[r][0]()
+                    # disabled
+                    self.indicators[r](0)
+                    # not focused
+                    for focusable in self.regions[r]:
+                        try:
+                            if type(focusable) is tuple:
+                                focusable[0]()
+                            else:
+                                focusable.focused = False
+                        except:
+                            print "Could not set unfocused state during region mask (" + r +")"
             else:
                 # not visible
-                self.indicators[r][2]()
-                # if currently active, re-assign attention distribution
-                if r in self.active_regions:
-                    self.resume()
+                self.indicators[r](0)
+                # not focused
+                try:
+                    for focusable in self.regions[r]:
+                        if type(focusable) is tuple:
+                            focusable[0]()
+                        else:
+                            focusable.focused = False
+                except:
+                    print "Could not set unfocused state during region mask (" + r +")"
+        print "Client",self.client_idx,", mask: ",self.available_subset
 
 # ===============================
 # === SUBTASK IMPLEMENTATIONS ===
@@ -1202,10 +1242,10 @@ class StressTask(LatentModule):
                  low_stress_value = 1,                                  # the stress parameter value during low periods
                  high_stress_value = 3,                                 # the stress parameter value during high periods
                  low_transition_sound = 'birds.wav',                    # sound to play when transitioning to low stress
-                 low_transition_icon = 'lowstress.jpg',                 # sound to play when transitioning to low stress
+                 low_transition_icon = 'lowstress.png',                 # sound to play when transitioning to low stress
                  low_transition_volume = 0.3,                           # volume of that sound
                  high_transition_sound = 'heartbeat.wav',               # sound to play when transitioning to high stress
-                 high_transition_icon = 'highstress.jpg',               # sound to play when transitioning to high stress
+                 high_transition_icon = 'highstress.png',               # sound to play when transitioning to high stress
                  high_transition_volume = 0.3,                          # volume of that sound
                  stimpresenter = None,                                  # an instance of BasicStimuli to present the sound events                  
                  ):
@@ -1218,7 +1258,7 @@ class StressTask(LatentModule):
         self.high_stress_value = high_stress_value
         self.low_transition_sound = low_transition_sound  
         self.high_transition_sound = high_transition_sound  
-        self.low_transition_icon = low_transition_icon  
+        self.low_transition_icon = low_transition_icon
         self.high_transition_icon = high_transition_icon  
         self.low_transition_volume = low_transition_volume
         self.high_transition_volume = high_transition_volume  
@@ -1698,7 +1738,7 @@ class CommTask(LatentModule):
                     self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
                     self.pause_after_message()
                 else:
-                    if self.focused and random.random() >= questioned_fraction:
+                    if not self.focused or random.random() >= questioned_fraction:
                         # no question asked
                         sentence = self.substitute(random.choice(self.distractors),self.targetsign)
                         self.presenterfunc(sentence)
@@ -3139,7 +3179,7 @@ class ClientGame(SceneBase):
 
         # stress indicator
         self.stress_pos = grid(1,(2,5),(4,5))               # position of the stress indicator (aspect2d coordinates)
-        self.stress_size = 0.15                             # size of the stress indicator
+        self.stress_size = 0.16                             # size of the stress indicator
 
         # warning light
         self.warn_pos = grid(1,(4,5),(4,5))                 # position of the red warning light (aspect2d coordinates)
@@ -3363,22 +3403,12 @@ class ClientGame(SceneBase):
         self.vocal_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.vocal_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
         self.sound_attention_indicator = rpyc.enable_async_methods(self.remote_stimpresenter.frame(self.sound_attention_frame,duration=max_duration,block=False,color=(0,0,0,0)))
 
-        # pairs of functions to turn various attention indocators on or off
-        self.text_attention_indicator_funcs = [lambda: self.text_attention_indicator.setColor(0,0,0,0),
-                                               lambda: self.text_attention_indicator.setColor(1,1,1,1),
-                                               lambda: self.text_attention_indicator.setColor(0,0,0,0)]
-        self.vocal_attention_indicator_funcs = [lambda: self.vocal_attention_indicator.setColor(0,0,0,0),
-                                                lambda: self.vocal_attention_indicator.setColor(1,1,1,1),
-                                                lambda: self.vocal_attention_indicator.setColor(0,0,0,0)]
-        self.sound_attention_indicator_funcs = [lambda: self.sound_attention_indicator.setColor(0,0,0,0),
-                                                lambda: self.sound_attention_indicator.setColor(1,1,1,1),
-                                                lambda: self.sound_attention_indicator.setColor(0,0,0,0)]
-        self.viewport_attention_indicator_funcs = [lambda: self.viewport_attention_indicator.setColor(0,0,0,0),
-                                                   lambda: self.viewport_attention_indicator.setColor(1,1,1,1),
-                                                   lambda: self.viewport_attention_indicator.setColor(0,0,0,0)]
-        self.satmap_attention_indicator_funcs = [lambda: self.satmap_attention_indicator.setColor(0,0,0,0),
-                                                 lambda: self.satmap_attention_indicator.setColor(1,1,1,1),
-                                                 lambda: self.satmap_attention_indicator.setColor(0,0,0,0)]
+        # functions to modulate the scalar visibility (0-1) of the attention indicators
+        self.text_attention_indicator_funcs = lambda x: self.text_attention_indicator.setColor(1,1,1,x)
+        self.vocal_attention_indicator_funcs = lambda x: self.vocal_attention_indicator.setColor(1,1,1,x)
+        self.sound_attention_indicator_funcs = lambda x: self.sound_attention_indicator.setColor(1,1,1,x)
+        self.viewport_attention_indicator_funcs = lambda x: self.viewport_attention_indicator.setColor(1,1,1,x)
+        self.satmap_attention_indicator_funcs = lambda x: self.satmap_attention_indicator.setColor(1,1,1,x)
 
     @livecoding
     def init_touch_buttons(self):
@@ -3603,11 +3633,6 @@ class ClientGame(SceneBase):
         elif not show and not (self.satmap_viewport is None):
             self.satmap_viewport.destroy()
             self.satmap_viewport = None
-        # also toggle the attention set indicator
-        if show:
-            self.attention_manager.mask_regions(set(self.master.available_attention_set))
-        else:
-            self.attention_manager.mask_regions(set(self.master.available_attention_set).difference(['satellite map']))
 
     @livecoding
     def update_satmap(self,task):
@@ -3748,7 +3773,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 1                                    # permutation number; used to determine the mission mix
+        self.permutation = 2                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
 
@@ -3949,6 +3974,7 @@ class Main(SceneBase):
         self.controllables = []                                 # agents that can be controlled by voice
         self.last_modality = False                              # true if the last response modality was speech
         self.same_modality_repeats = 0                          # number of successive responses in the same modality (speech versus button)
+        self.last_report_press_time = [0,0]                     # last time when a player hit the report button
 
         # initialize the clients
         for k in [0,1]:
@@ -4282,6 +4308,8 @@ class Main(SceneBase):
             for cl in self.clients:
                 cl.toggle_satmap(True)
             self.reset_control_scheme(controlscheme)
+            # disable the viewport side task
+            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
@@ -4317,6 +4345,7 @@ class Main(SceneBase):
                 self.sleep(3)
         finally:
             # cleanup
+            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set))
             if self.checkpoint:
                 self.checkpoint.destroy()
             taskMgr.remove('UpdateScorePeriodic')
@@ -4342,6 +4371,9 @@ class Main(SceneBase):
             self.create_wanderers(self.pan_wanderer_count,box_constraint=box_constraint)
             accept_message = self.clients[self.panning_idx].tag + '-report'
             self.accept(accept_message, lambda: self.on_report(self.panning_idx))
+            # disable the viewport side tasks
+            self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
+            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
             self.clients[self.panning_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", during this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
@@ -4409,6 +4441,8 @@ class Main(SceneBase):
 
         finally:
             # cleanup
+            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set))
+            self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set))
             self.ignore(accept_message)
             self.destroy_wanderers()
             taskMgr.remove('UpdateScorePeriodic')
@@ -4484,6 +4518,9 @@ class Main(SceneBase):
             self.reset_control_scheme(['vehicle','aerial'])
             self.clients[self.vehicle_idx].toggle_satmap(False)
             self.clients[self.aerial_idx].toggle_satmap(True)
+            # disable the viewport side task for the aerial subject and satmap side tasks for driving subject
+            self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
+            self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map']))
             # display instructions for everyone
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', the other player will guide you through the map from an aerial viewpoint.')
             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', you now hove an aerial perspective -- guide the other player through a sequence of checkpoints.')
@@ -4543,6 +4580,9 @@ class Main(SceneBase):
                 self.update_score_both(self.checkpoint_reach_bonus)
                 self.sleep(3)
         finally:
+            # cleanup
+            self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set))
+            self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set))
             if self.checkpoint:
                 self.checkpoint.destroy()
             self.destroy_wanderers()
@@ -5094,19 +5134,19 @@ class Main(SceneBase):
     def on_report(self,c):
         """ Called when a client preses the 'report' button during the pan-the-cam mission. """
         now = time.time()
-        report_valid = False
-        # get all agents in direct field of view
-        v = self.agents[c]
-        v_pos = v.getPos(self.city)
-        v_vec = v.getMat(self.city).getRow3(1)
-        v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
-        # for each agent...
-        for a in self.wanderers:
-            a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
-            counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
-            if counts_as_report:
-                report_valid = True
-                if now - a.last_report_time[c] > self.report_repeat_press_interval:
+        if now - self.last_report_press_time[c] > self.report_repeat_press_interval:
+            report_valid = False
+            # get all agents in direct field of view
+            v = self.agents[c]
+            v_pos = v.getPos(self.city)
+            v_vec = v.getMat(self.city).getRow3(1)
+            v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
+            # for each agent...
+            for a in self.wanderers:
+                a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
+                counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
+                if counts_as_report:
+                    report_valid = True
                     if now - a.last_report_time[c] < self.double_report_cutoff:
                         # reporting the same object in too short succession
                         self.clients[c].overall_score.score_event(self.pancam_double_loss)
@@ -5114,8 +5154,9 @@ class Main(SceneBase):
                         # valid report
                         self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
                     a.last_report_time[c] = now
-        if not report_valid:
-            self.clients[c].overall_score.score_event(self.pancam_false_loss)
+            if not report_valid:
+                self.clients[c].overall_score.score_event(self.pancam_false_loss)
+            self.last_report_press_time[c] = now
 
     def client_ack(self):
         """ callback when a client has acknowledged something (only during game startup). """
