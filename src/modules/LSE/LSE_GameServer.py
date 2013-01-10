@@ -3721,7 +3721,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 1                                    # permutation number; used to determine the mission mix
+        self.permutation = 2                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
 
@@ -3849,12 +3849,12 @@ class Main(SceneBase):
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
-        self.pancam_wanderer_range = (150,150)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
+        self.pancam_wanderer_range = (250,250)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = (10,20)                         # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
         self.checkpoint_max_distance = 150                      # maximum direct distance between any two successive checkpoints on a tour
-        self.report_field_of_view = 15                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
+        self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
         self.double_report_cutoff = 5                           # if an agent is being reported within shorter succession than this many seconds it counts as a double report
         self.potentially_visible_cutoff = 3                     # if an agent was potentially visible for longer than this, and has not been reported before it went away
                                                                 # we count this as a miss
@@ -3862,6 +3862,8 @@ class Main(SceneBase):
                                                                 # as a reappearance after a short hide, not a full re-encounter
         self.short_spotting_cutoff = 1.5                        # if an agent was on camera for less than this duration we count that as a short spotting, which gives
                                                                 # less penalty when not reported (than if it was missed despite being in plain view for long enough)
+        self.fendoff_distance = 25                              # in secure-the-perimeter, if an invader is closer than this and has eye contact with a player, it will automatically retreat (no honking necessary)
+        self.warn_distance = 50                                 # in secure-the-perimeter, this is the distance within which invaders in field-fov-view respond to the warn-off button
 
         # response logic
         self.max_same_modality_responses = 10000 #10            # if subject responds more than this many times in a row in the same modality
@@ -4209,7 +4211,7 @@ class Main(SceneBase):
                 self.play_indiv_drive_watch(['vehicle','static'])
             elif missiontype == 'indiv-watch/drive':
                 self.play_indiv_drive_watch(['static','vehicle'])
-            if missiontype == 'indiv-pan/watch':
+            elif missiontype == 'indiv-pan/watch':
                 self.play_indiv_pan_watch(['panning','static'])
             elif missiontype == 'indiv-watch/pan':
                 self.play_indiv_pan_watch(['static','panning'])
@@ -4561,7 +4563,7 @@ class Main(SceneBase):
                         viewdir = v.getMat(self.city).getRow(1)
                         los = line_of_sight(self.physics,v.getPos(self.city),
                             a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),
-                            a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
+                            a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view,src_maxsight=self.fendoff_distance)
                         if los is not None:
                             if los == "front" and (not a.mode == "retreating"):
                                 self.clients[k].viewport_instructions.submit(self.clients[k].id + ', you have fended off an intruder!')
@@ -5055,7 +5057,10 @@ class Main(SceneBase):
         if buttons[0]:   # Gamepad A button
             self.client_warn(client)
         if buttons[1]:   # Gamepad B button
-            self.client_reset_vehicle(client)
+            if self.agent_control[client] == 'panning':
+                self.on_report(client)
+            else:
+                self.client_reset_vehicle(client)
 
     @livecoding
     def on_report(self,c):
@@ -5073,7 +5078,7 @@ class Main(SceneBase):
             counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
             if counts_as_report:
                 report_valid = True
-                if now - a.last_report_time[c] > self.double_report_cutoff:
+                if now - a.last_report_time[c] < self.double_report_cutoff:
                     # reporting the same object in too short succession
                     self.clients[c].overall_score.score_event(self.pancam_double_loss)
                 else:
@@ -5101,7 +5106,7 @@ class Main(SceneBase):
                 continue
             # check if any invader has line-of-sight with the responsible player
             a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
-            los = line_of_sight(self.physics,v.getPos(self.city),a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view)
+            los = line_of_sight(self.physics,v.getPos(self.city),a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view,src_maxsight=self.warn_distance)
             if los is not None:
                 if a.mode == "retreating":
                     num_alreadyretreating += 1
@@ -5193,7 +5198,7 @@ class Main(SceneBase):
                              ):
         """ Reset a lost player vehicle: places it on the map again and resets the orientation. """
         # reset can only be triggered once every few seconds
-        if time.time() > (self.last_reset_time[num] + self.min_reset_interval):
+        if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and self.agent_control[num] == 'vehicle':
             print "Client " + str(num) + " pressed the reset button."
             self.marker('Response/Button Press/Reset Vehicle, Participant/ID/%i' % num)
             #noinspection PyUnresolvedReferences
