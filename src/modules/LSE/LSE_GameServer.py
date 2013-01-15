@@ -3275,7 +3275,8 @@ class ClientGame(SceneBase):
         self.audio_comm_task_args = {}                      # arguments for the audio communications task
         self.satmap_task_args = {}                          # arguments for the satellite map task
         self.sound_task_args = {# diable one of the channels # arguments for the sound task
-                                'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
+                                # 'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
+                                'sound_directions' : {'front':0, 'left':-1, 'right':1}
                                 }
         self.attention_set_args = {}                        # arguments for the attention set management
 
