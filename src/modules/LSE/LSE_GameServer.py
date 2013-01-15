@@ -435,8 +435,8 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
          bo=0.05,             # left/right, top/botton border of each screen, as a fraction of screen height; can be a scalar or a (x,y) tuple
          ma=0.025,            # x/y margin between cells, as a fraction of screen height; can be a scalar or a (x,y) tuple (1/2 margin exists around each cell)
          sys='aspect2d',      # output coordinate system (can be 'render2d', 'aspect2d', 'normalized', or 'window')
-         exp=0.0,             # expand the cell size by this value (a fraction of screen height; can be a scalar or a (x,y) tuple
-         mov=0.0,             # movement to the cell position (a fraction of screen height; can be a scalar or a (x,y) tuple
+         exp=0.0,             # expand the cell size by this value (a fraction of screen height; can be a scalar or a (x,y) tuple)
+         mov=0.0,             # movement of the cell position (a fraction of screen height; can be a scalar or a (x,y) tuple)
          ):
     """
     Calculate screen coordinates from positions on a virtual 2d grid on a given screen.
@@ -3107,6 +3107,14 @@ class SceneBase(LatentModule):
                 rpyc.async(node.removeNode)()
             print "done."
 
+        # remove all StartPos instances except for one
+        startpos_nodes = self.city.findAllMatches('**/StartPos*')
+        if len(startpos_nodes) > 1:
+            retain_idx = random.choice(range(len(startpos_nodes)))
+            for k in range(len(startpos_nodes)):
+                if not k == retain_idx:
+                    rpyc.async(startpos_nodes[k].removeNode)()
+
     @livecoding
     def destroy_static_world(self):
         """Unload the static game world."""
@@ -3129,7 +3137,8 @@ class SceneBase(LatentModule):
 
     def create_agent(self,name):
         """Create an agent instance (actually look it up from what's contained in the scene anyway)."""
-        return self.city.find("**/"+name)
+        tmp = self.city.find("**/" + name + "*")
+        return tmp
 
 
 # ==============================
@@ -3740,10 +3749,10 @@ class ClientGame(SceneBase):
         self.master.on_joystick(self.num,x,y,u,v,buttons)
 
     def on_speech(self,phrase):
-        self.master.handle_client_speech(self.num,phrase)
+        self.master.on_client_speech(self.num,phrase)
 
     def on_button(self,word):
-        self.master.handle_client_speech(self.num,word,actual_speech=False)
+        self.master.on_client_speech(self.num,word,actual_speech=False)
 
 
 # ===========================
@@ -3788,17 +3797,17 @@ class Main(SceneBase):
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
-        self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that 
-                                                                # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it        
-        self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
-        self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
-        self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
+        #self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
+        #                                                        # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
+        #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
+        #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
+        #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
 
-        #self.world_types = ['LSE_Mark2_tiny_new']              # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
-        #                                                        # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
-        #self.terrain_types = ['LSE_desertplains_smooth']       # the possible terrain types
-        #self.agent_names = ["PlayerA","PlayerB"]               # name of the agent objects in the world map
-        #self.truck_name = "Truck"
+        self.world_types = ['LSE_Mark2_tiny_new']              # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+                                                                # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
+        self.terrain_types = ['LSE_desertplains_smooth']       # the possible terrain types
+        self.agent_names = ["PlayerA","PlayerB"]               # name of the agent objects in the world map
+        self.truck_name = "Truck"
 
         # enabled attention set
         self.available_attention_set = ['spoken material','text material','sounds','camera view','satellite map']   # the permitted areas to which attention can be addressed
@@ -3918,6 +3927,7 @@ class Main(SceneBase):
                                                                 # less penalty when not reported (than if it was missed despite being in plain view for long enough)
         self.fendoff_distance = 25                              # in secure-the-perimeter, if an invader is closer than this and has eye contact with a player, it will automatically retreat (no honking necessary)
         self.warn_distance = 50                                 # in secure-the-perimeter, this is the distance within which invaders in field-fov-view respond to the warn-off button
+        self.use_manual_checkpoints = False                     # use manually placed checkpoints if present in the map
 
         # response logic
         self.max_same_modality_responses = 10000 #10            # if subject responds more than this many times in a row in the same modality
@@ -4184,7 +4194,7 @@ class Main(SceneBase):
             cl.create_static_world(self.world_types[mapnum],None if self.no_terrain else self.terrain_types[mapnum],None,True)
 
         # get the position of the truck
-        truck = self.city.find("**/" + self.truck_name)
+        truck = self.city.find("**/" + self.truck_name + "*")
         self.truck_pos = truck.getPos(self.city)
 
         # parse the checkpoints from the map
@@ -4321,16 +4331,17 @@ class Main(SceneBase):
             # add checkpoint gizmo
             self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx],oncamera=True,throughwalls=True )
             # generate new checkpoint sequence
-            self.checkpoints = generate_path(
-                startpos=self.truck_pos,
-                endpos=self.truck_pos,
-                num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
-                scenegraph=self.city,
-                navmesh=self.navcrowd.nav,
-                physics=self.physics,
-                objectnames=('Concrete'),
-                min_distance_between_positions=self.checkpoint_min_distance,
-                max_distance_between_successive_positions=self.checkpoint_max_distance)
+            if not (self.use_manual_checkpoints and self.checkpoints):
+                self.checkpoints = generate_path(
+                    startpos=self.truck_pos,
+                    endpos=self.truck_pos,
+                    num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
+                    scenegraph=self.city,
+                    navmesh=self.navcrowd.nav,
+                    physics=self.physics,
+                    objectnames=('Concrete'),
+                    min_distance_between_positions=self.checkpoint_min_distance,
+                    max_distance_between_successive_positions=self.checkpoint_max_distance)
             # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the gizmo
@@ -4371,7 +4382,7 @@ class Main(SceneBase):
 
             self.create_wanderers(self.pan_wanderer_count,box_constraint=box_constraint)
             accept_message = self.clients[self.panning_idx].tag + '-report'
-            self.accept(accept_message, lambda: self.on_report(self.panning_idx))
+            self.accept(accept_message, lambda: self.on_client_report(self.panning_idx))
             # disable the viewport side tasks
             self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
@@ -4461,16 +4472,17 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
             self.reset_control_scheme(['vehicle','vehicle'])
             # generate new checkpoint sequence
-            self.checkpoints = generate_path(
-                startpos=self.truck_pos,
-                endpos=self.truck_pos,
-                num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
-                scenegraph=self.city,
-                navmesh=self.navcrowd.nav,
-                physics=self.physics,
-                objectnames=('Concrete'),
-                min_distance_between_positions=self.checkpoint_min_distance,
-                max_distance_between_successive_positions=self.checkpoint_max_distance)
+            if not (self.use_manual_checkpoints and self.checkpoints):
+                self.checkpoints = generate_path(
+                    startpos=self.truck_pos,
+                    endpos=self.truck_pos,
+                    num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
+                    scenegraph=self.city,
+                    navmesh=self.navcrowd.nav,
+                    physics=self.physics,
+                    objectnames=('Concrete'),
+                    min_distance_between_positions=self.checkpoint_min_distance,
+                    max_distance_between_successive_positions=self.checkpoint_max_distance)
             # show the instructions
             self.broadcast_message('move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
             self.sleep(5)
@@ -4529,16 +4541,17 @@ class Main(SceneBase):
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
             # generate new checkpoint sequence
-            self.checkpoints = generate_path(
-                startpos=self.truck_pos,
-                endpos=self.truck_pos,
-                num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
-                scenegraph=self.city,
-                navmesh=self.navcrowd.nav,
-                physics=self.physics,
-                objectnames=('Concrete'),
-                min_distance_between_positions=self.checkpoint_min_distance,
-                max_distance_between_successive_positions=self.checkpoint_max_distance)
+            if not (self.use_manual_checkpoints and self.checkpoints):
+                self.checkpoints = generate_path(
+                    startpos=self.truck_pos,
+                    endpos=self.truck_pos,
+                    num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
+                    scenegraph=self.city,
+                    navmesh=self.navcrowd.nav,
+                    physics=self.physics,
+                    objectnames=('Concrete'),
+                    min_distance_between_positions=self.checkpoint_min_distance,
+                    max_distance_between_successive_positions=self.checkpoint_max_distance)
             # set up periodic score update
             taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]], appendTask=True)
             # move the agent up into the air (by gradually ramping up the force)
@@ -4817,8 +4830,8 @@ class Main(SceneBase):
     def start_physics(self):
         taskMgr.add(self.update_physics,"UpdatePhysics")
         # allow the players to reset their vehicles (if they broke down or the like)
-        self.accept('r-cl0-down',lambda: self.client_reset_vehicle(0))
-        self.accept('r-cl1-down',lambda: self.client_reset_vehicle(1))
+        self.accept('r-cl0-down',lambda: self.on_client_reset_vehicle(0))
+        self.accept('r-cl1-down',lambda: self.on_client_reset_vehicle(1))
 
     #noinspection PyUnusedLocal
     @livecoding
@@ -5124,15 +5137,15 @@ class Main(SceneBase):
     def on_joystick(self,client,x,y,u,v,buttons):
         """ Handle joystick events. """
         if buttons[0]:   # Gamepad A button
-            self.client_warn(client)
+            self.on_client_warn(client)
         if buttons[1]:   # Gamepad B button
             if self.agent_control[client] == 'panning':
-                self.on_report(client)
+                self.on_client_report(client)
             else:
-                self.client_reset_vehicle(client)
+                self.on_client_reset_vehicle(client)
 
     @livecoding
-    def on_report(self,c):
+    def on_client_report(self,c):
         """ Called when a client preses the 'report' button during the pan-the-cam mission. """
         now = time.time()
         if now - self.last_report_press_time[c] > self.report_repeat_press_interval:
@@ -5164,7 +5177,7 @@ class Main(SceneBase):
         self.num_acks += 1
 
     @livecoding
-    def client_warn(self,idx):
+    def on_client_warn(self,idx):
         """ Callback when a client has pressed the "warn off" button. """ 
         self.marker('Response/Button Press/Warn Agents')
         v = self.agents[idx]
@@ -5193,11 +5206,11 @@ class Main(SceneBase):
             self.clients[idx].viewport_instructions.submit('This agent is already retreating.')
 
     @livecoding
-    def handle_client_speech(self,
-                             cl_idx,               # index of the participant emitting the speech
-                             phrase,               # the raw phrase that was emitted
-                             actual_speech=True    # whether the modality is in fact speech or rather a press of a labeled button 
-                             ):
+    def on_client_speech(self,
+                         cl_idx,               # index of the participant emitting the speech
+                         phrase,               # the raw phrase that was emitted
+                         actual_speech=True    # whether the modality is in fact speech or rather a press of a labeled button
+                         ):
         """ Handles the subjects' speech responses. """
 
         print str(time.time()) + " client",cl_idx,"said:",phrase
@@ -5264,9 +5277,9 @@ class Main(SceneBase):
                     ag.move_to_location(self.truck_pos)
 
     @livecoding
-    def client_reset_vehicle(self,
-                             num        # index client of the client requesting the reset 
-                             ):
+    def on_client_reset_vehicle(self,
+                                num        # index client of the client requesting the reset
+                                ):
         """ Reset a lost player vehicle: places it on the map again and resets the orientation. """
         # reset can only be triggered once every few seconds
         if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and self.agent_control[num] == 'vehicle':
