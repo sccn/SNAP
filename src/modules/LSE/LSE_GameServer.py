@@ -4550,7 +4550,7 @@ class Main(SceneBase):
                 self.rise_force_offset = self.rise_force_offset_max * fraction
                 self.sleep(0.05)                                     
             # add checkpoint gizmos for the players (but the vehicle player does not get to see them through walls)
-            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx,self.aerial_idx],oncamera=True,throughwalls=[False,True])
+            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx,self.aerial_idx],oncamera=True,throughwalls=[True,False,True])
             # for each checkpoint...
             for cp in range(len(self.checkpoints)):
                 # move the checkpoint
