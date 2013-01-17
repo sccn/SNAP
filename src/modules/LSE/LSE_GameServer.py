@@ -1124,12 +1124,12 @@ class AttentionSetManager(LatentModule):
 
             # display the switch instructions in the appropriate instructors
             if len(self.active_regions) == 0:
-                switch_message = self.client_id + ', from now on, please ignore all side tasks and focus on the main mission.'
+                switch_message = self.client_id + ', starting now, ignore all side tasks and focus on the main mission.'
             else:
-                switch_message = self.client_id + ', from now on, please focus on ' + self.active_regions[0]
+                switch_message = self.client_id + ', starting now, your side tasks are the ' + self.active_regions[0]
                 if len(self.active_regions) > 1:
                     for r in self.active_regions[1:]:
-                        switch_message += ' and ' + r
+                        switch_message += ' and the ' + r
                 switch_message += '.'
             for regionname in self.prev_active_regions:
                 self.instructors[regionname](switch_message)
@@ -2570,6 +2570,7 @@ class WanderingAgent(BasicStimuli):
 
                  # display control
                  scene_graphs=(),           # scene graphs to which to add the renderable models
+                 engines=(),                # engine instances maintaianing these scene graphs
                  models=(),                 # the models that should be added to those scene graphs
 
                  # control of the initial spawn location 
@@ -2628,6 +2629,9 @@ class WanderingAgent(BasicStimuli):
             m = models[i]
             inst = rpyc.enable_async_methods(g.attachNewNode("WanderingAgent"))
             inst.setPos(self.pos.getX(),self.pos.getY(),self.pos.getZ())
+            # also hide the agent from all the satmap cameras
+            for c in [1,2]:
+                inst.hide(engines[i].pandac.BitMask32.bit(c))
             self.instances.append(inst)
             m.instanceTo(inst)
             self.pos_functions.append(inst.setPos)
@@ -2712,6 +2716,7 @@ class InvadingAgent(BasicStimuli):
 
                  # display control
                  scene_graphs,              # scene graphs to which to add the renderable models
+                 engines,                   # engines that are maintaining these scene graphs
                  models,                    # the models that should be added to those scene graphs
 
                  # behavioral control
@@ -2769,6 +2774,9 @@ class InvadingAgent(BasicStimuli):
             m = models[i]
             inst = rpyc.enable_async_methods(g.attachNewNode("InvadingAgent"))
             inst.setPos(self.pos.getX(),self.pos.getY(),self.pos.getZ())
+            # also hide the agent from the satmap cameras (using the appropriate masks)
+            for c in [1,2]:
+                inst.hide(engines[i].pandac.BitMask32.bit(c))
             self.instances.append(inst)
             m.instanceTo(inst)
             self.pos_functions.append(inst.setPos)
@@ -3607,10 +3615,11 @@ class ClientGame(SceneBase):
         self.satmap_camera.setHpr(-90,-90,0)
         self.satmap_camera_setpos = self.satmap_camera.setPos
 
-        # ensure that the agents objects themselves are not seen by any of the satmap cameras
-        # (note: generally the scene graph on the client machine has
-        for a in range(2):
-            for c in range(2):
+        # set camera masks
+        for c in range(2):
+            # ensure that the agents objects themselves are not seen by any of the satmap cameras
+            # (note: generally the scene graph on the client machine has
+            for a in range(2):
                 self.agents[a].hide(self._engine.pandac.BitMask32.bit(c))
 
         # create satmap widgets for each desired agent
@@ -3788,7 +3797,7 @@ class Main(SceneBase):
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
 
         # mission mix
-        self.lull_mission_types = ['lull-wait','lull-deep']     # possible lull missions (appear between any two blocks)
+        self.lull_mission_types = ['lull-deep']                 # possible lull missions (appear between any two blocks)
         self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
         self.indiv_mission_types = ['indiv-drive/watch','indiv-watch/drive','indiv-pan/watch','indiv-watch/pan'] # possible indiv missions
         self.fraction_coop_per_block = (0.25,0.75)              # permitted fraction of co-op missions per block
@@ -3797,20 +3806,27 @@ class Main(SceneBase):
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
+        self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
+        #self.world_types = ['LSE_oldcity_test_zup_inches']      # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+                                                                # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
+        self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
+        self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
+        self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
+
         #self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
         #                                                        # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
         #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
         #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
         #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
 
-        self.world_types = ['LSE_Mark2_tiny_new']              # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
-                                                                # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
-        self.terrain_types = ['LSE_desertplains_smooth']       # the possible terrain types
-        self.agent_names = ["PlayerA","PlayerB"]               # name of the agent objects in the world map
-        self.truck_name = "Truck"
+        #self.world_types = ['LSE_oldcity_test']                    # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        #                                                         # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
+        #self.terrain_types = ['LSE_desertplains_smooth']         # the possible terrain types
+        #self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
+        #self.truck_name = "Truck"
 
         # enabled attention set
-        self.available_attention_set = ['spoken material','text material','sounds','camera view','satellite map']   # the permitted areas to which attention can be addressed
+        self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
 
         # misc
         self.alert_sound = 'sounds/SysAlert.wav'                # the alert that is played to warn off hostile agents
@@ -4323,8 +4339,8 @@ class Main(SceneBase):
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
-            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", your task is to proceed through a series of checkpoints and follow other instructions as they come. The other subject performs a separate mission.")
-            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", during this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate driving mission.")
+            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the checkpoint mission on your own. Please ignore your partner for now.")
+            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.")
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
@@ -4388,8 +4404,8 @@ class Main(SceneBase):
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
-            self.clients[self.panning_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", during this mission you are not moving, but you control the camera of your truck. Your mission is to watch the area and report any foreign movement around you.")
-            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", during this mission you are not moving. Please follow instructions as they come in. The other subject performs a separate mission.")
+            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.")
+            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.")
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]], appendTask=True)
@@ -4414,6 +4430,7 @@ class Main(SceneBase):
 
                     # update direct visibility properties (= in field of view)
                     if a.is_directly_visible[c] != directly_visible:
+                        self.marker('Experiment Control/Task/PanTheCam/Agent Becomes %s/{identifier:%i}, Participants/ID/%i' % ('Visible' if a.is_directly_visible[c] else 'Invisible',a.identifier,self.panning_idx))
                         if a.is_directly_visible[c]:
                             # agent just became visible
                             a.directly_visible_since[c] = now
@@ -4484,7 +4501,7 @@ class Main(SceneBase):
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # show the instructions
-            self.broadcast_message('move to the next checkpoints and stay together. A star shows the direction in the camera and satellite viewports.')
+            self.broadcast_message(', starting now, perform the cooperative checkpoint mission with your partner.')
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
@@ -4535,9 +4552,8 @@ class Main(SceneBase):
             self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map']))
             # display instructions for everyone
-            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', the other player will guide you through the map from an aerial viewpoint.')
-            self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', you now hove an aerial perspective -- guide the other player through a sequence of checkpoints.')
-            self.clients[self.aerial_idx].viewport_instructions.submit('The next point is marked on the map with a star. Ensure that the other player avoids contact with hostile entities.')
+            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions."")
+            self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', starting now, perform the aerial guidance mission with your partner. Guide your partner through the checkpoints.')
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
             # generate new checkpoint sequence
@@ -4618,7 +4634,7 @@ class Main(SceneBase):
             self.create_invaders(self.invader_count)
             self.create_controllables()
             # show instructions
-            self.broadcast_message('secure the perimeter around the truck.')
+            self.broadcast_message(', starting now, perform the secure-the-perimeter mission with your partner.')
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]], appendTask=True)
@@ -4690,18 +4706,6 @@ class Main(SceneBase):
             taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
-    def play_lullwait(self):
-        """ 
-        A mission in which both subjects rest for X minutes and await further orders on their messenger.
-        """
-        for cl in self.clients:
-            cl.toggle_satmap(True)
-        self.reset_control_scheme(['static','static'])
-        self.broadcast_message('there are no outstanding missions for the next few minutes. Please occupy yourself with the side tasks.')
-        self.sleep(5)
-        self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
-
-    @livecoding
     def play_lulldeep(self):
         """
         A mission in which both subjects rest for X minutes and have nothing to do but watch the warning lightr.
@@ -4711,7 +4715,7 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
                 cl.attention_manager.mask_regions([])
             self.reset_control_scheme(['static','static'])
-            self.broadcast_message('there is nothing to do for the next few minutes except for watching the red warning light.')
+            self.broadcast_message(', starting now, do nothing except watch and respond to the red warning light for the next few minutes.')
             self.sleep(5)
             self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
         finally:
@@ -4941,6 +4945,7 @@ class Main(SceneBase):
                 physics=self.physics,
                 surfacegraph=self.city,
                 scene_graphs=[self.city,self.clients[0].city,self.clients[1].city],
+                engines=[self._engine,self.clients[0]._engine,self.clients[1]._engine],
                 models=[self.hostile_model,self.clients[0].hostile_model,self.clients[1].hostile_model],
                 spawn_pos=None,
                 wander=True,
@@ -4970,6 +4975,7 @@ class Main(SceneBase):
             self.invaders.append(InvadingAgent(
                 crowd=self.navcrowd,
                 scene_graphs=[self.city,self.clients[0].city,self.clients[1].city],
+                engines=[self._engine,self.clients[0]._engine,self.clients[1]._engine],
                 models=[self.hostile_model,self.clients[0].hostile_model,self.clients[1].hostile_model],
                 bulletworld=self.physics,
                 spawn_pos=pos,
