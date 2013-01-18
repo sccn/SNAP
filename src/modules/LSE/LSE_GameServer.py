@@ -617,7 +617,7 @@ class ScoreCounter(BasicStimuli):
                  bar_fine_color = (0,1,0,1),          # the color of the bar when above the critical mark
                  bar_abovemax_color = (0,0,1,1),      # the color of the bar when above the maximum
                  font_size = 4,                       # font size of the score text
-                 text_color = (1,1,1,1),              # color of the score text itself
+                 text_color = (0.5,0.5,1,1),          # color of the score text itself
                  bar_vertical_squish = 0.5,           # squishes the bar vertically...
 
                  # sound parameters
@@ -3054,7 +3054,10 @@ class SceneBase(LatentModule):
 
         # load the navmesh
         searchpath = ConfigVariableSearchPath('model-path')
-        self.navmesh = navigation.NavMesh(navmesh=str(searchpath.findFile('media/' + modelname + '.dat')))
+        meshfile = str(searchpath.findFile('media/' + modelname + '.dat'))
+        if not meshfile:
+            raise Exception("Could not find navmesh for model named " + modelname)
+        self.navmesh = navigation.NavMesh(navmesh=meshfile)
         self.navcrowd = navigation.NavCrowd(self.navmesh,maxagents=self.max_total_agents)
 
         # load the model for the hostile agents
@@ -3570,21 +3573,21 @@ class ClientGame(SceneBase):
 
         # attention set management (activates a small subset of attendable regions at any given time)
         self.attention_manager = self.launch(AttentionSetManager(
-            regions={'spoken material':[self.audio_comm_task],
-                     'text material':[self.text_comm_task],
+            regions={'spoken sentences':[self.audio_comm_task],
+                     'written sentences':[self.text_comm_task],
                      'sounds':[self.sound_task],
-                     'satellite map':[self.satmap_task],
-                     'camera view':[(lambda: self.master.worldmap_task.set_focused(self.num,False), lambda: self.master.worldmap_task.set_focused(self.num,True))]},
-            instructors={'spoken material':self.vocal_communications_presenter.submit,
-                         'text material':self.viewport_instructions.submit,
+                     'satellite map icons':[self.satmap_task],
+                     'curbside objects':[(lambda: self.master.worldmap_task.set_focused(self.num,False), lambda: self.master.worldmap_task.set_focused(self.num,True))]},
+            instructors={'spoken sentences':self.vocal_communications_presenter.submit,
+                         'written sentences':self.viewport_instructions.submit,
                          'sounds':self.vocal_communications_presenter.submit,
-                         'satellite map':self.satmap_instructions.submit,
-                         'camera view':self.viewport_instructions.submit},
-            indicators={'spoken material':self.vocal_attention_indicator_funcs,
-                        'text material':self.text_attention_indicator_funcs,
+                         'satellite map icons':self.satmap_instructions.submit,
+                         'curbside objects':self.viewport_instructions.submit},
+            indicators={'spoken sentences':self.vocal_attention_indicator_funcs,
+                        'written sentences':self.text_attention_indicator_funcs,
                         'sounds':self.sound_attention_indicator_funcs,
-                        'satellite map':self.satmap_attention_indicator_funcs,
-                        'camera view': self.viewport_attention_indicator_funcs},
+                        'satellite map icons':self.satmap_attention_indicator_funcs,
+                        'curbside objects': self.viewport_attention_indicator_funcs},
             available_subset = self.master.available_attention_set,
             client_idx = self.num,
             client_id = self.id,
@@ -3792,7 +3795,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 2                                    # permutation number; used to determine the mission mix
+        self.permutation = 1                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
 
@@ -4334,7 +4337,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme)
+            self.reset_control_scheme(controlscheme,randomize=False)
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             # show instructions
@@ -4389,7 +4392,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme)
+            self.reset_control_scheme(controlscheme,randomize=False)
 
             # determine the navigation zone around the relevant subject
             v = self.agents[self.panning_idx]
@@ -4552,7 +4555,7 @@ class Main(SceneBase):
             self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
             self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map']))
             # display instructions for everyone
-            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions."")
+            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions.")
             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', starting now, perform the aerial guidance mission with your partner. Guide your partner through the checkpoints.')
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
             self.sleep(5)
