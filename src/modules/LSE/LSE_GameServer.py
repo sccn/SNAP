@@ -371,7 +371,10 @@ def generate_positions(scenegraph,                  # the scene graph for which 
             # all checks succeeded: append the pos
             results.append(pos)
             break
-        print "  generated position within ", retry+1, "attempts."
+        if results:
+            print "  generated position within ", retry+1, "attempts."
+        else:
+            print "  gave up position-generation after ", retry+1, "attempts."
     return results
 
 @livecoding
@@ -385,12 +388,13 @@ def generate_path(startpos,                    # the starting position of the pa
 
                   # placement constraints
                   objectnames=None,                             # the names of objects to whose surfaces the points should be constrained
-                  min_distance_between_positions=50,            # the minimum direct distance between any two points on the path (starting point is ignored from 2nd pos onward if too close to endpoint)
-                  max_distance_between_successive_positions=150, # the maximum direct distance between two successive points on the path
+                  min_distance_between_positions=75,            # the minimum direct distance between any two points on the path (starting point is ignored from 2nd pos onward if too close to endpoint)
+                  max_distance_between_successive_positions=150,# the maximum direct distance between two successive points on the path
                   no_successive_line_of_sight=False,            # whether successive points should have no line-of-sight to each other
                   within_box=None,                              # optional overall box constraint for entire path ((minx,maxx),(miny,maxy),(minz,maxz))
                   max_retries=10000,                            # maximum number of attempts at generating a feasible path
                   inner_max_retries=300,                        # maximum number of attempts per generated position
+                  z_offset=0.75,                                # offset of the path nodes in z axis
                   ):
     """ Generate a path through a map between two endpoints with pseudo-random intermediate points. """
     retry = 0
@@ -423,6 +427,8 @@ def generate_path(startpos,                    # the starting position of the pa
             continue
         # succeeded: return it
         print "  generated path within ", retry+1, "attempts."
+        for k in range(len(cur_path)):
+            cur_path[k].setZ(cur_path[k].getZ() + z_offset)
         return cur_path
     raise Exception("Failed to generate path through map (check if constraints satisfiable).")
 
@@ -617,7 +623,7 @@ class ScoreCounter(BasicStimuli):
                  bar_fine_color = (0,1,0,1),          # the color of the bar when above the critical mark
                  bar_abovemax_color = (0,0,1,1),      # the color of the bar when above the maximum
                  font_size = 4,                       # font size of the score text
-                 text_color = (0.5,0.5,1,1),          # color of the score text itself
+                 text_color = (0.65,0.65,1,1),          # color of the score text itself
                  bar_vertical_squish = 0.5,           # squishes the bar vertically...
 
                  # sound parameters
@@ -2363,7 +2369,8 @@ class ProbedObjectsTask(LatentModule):
                 within_cone=[[agent_positions[k],agent_viewdirs[k]] for k in range(len(self.agents))], within_cone_angle = self.add_within_fov, within_cone_param = 'any',
                 nearby_radius=self.add_radius_max, nearby_param = 'any',
                 away_radius=self.add_radius_min,
-                snap_to_navmesh=False
+                snap_to_navmesh=False,
+                max_retries=20
             )
             if len(pos) == 0:
                 break # in some cases the conditions can be unsatisfiable; in this case we don't add
@@ -2552,8 +2559,6 @@ class ProbedObjectsTask(LatentModule):
 
 _agent_id_generator = itertools.count(1)   # a generator to assign experiment-wide unique id's to agents (both wanderers, invaders, etc.)
 
-
-
 class WanderingAgent(BasicStimuli):
     """
     A type of agent that is wandering around from random checkpoint to random checkpoint
@@ -2630,8 +2635,8 @@ class WanderingAgent(BasicStimuli):
             inst = rpyc.enable_async_methods(g.attachNewNode("WanderingAgent"))
             inst.setPos(self.pos.getX(),self.pos.getY(),self.pos.getZ())
             # also hide the agent from all the satmap cameras
-            for c in [1,2]:
-                inst.hide(engines[i].pandac.BitMask32.bit(c))
+            #for c in [1,2]:
+            #    inst.hide(engines[i].pandac.BitMask32.bit(c))
             self.instances.append(inst)
             m.instanceTo(inst)
             self.pos_functions.append(inst.setPos)
@@ -2775,8 +2780,8 @@ class InvadingAgent(BasicStimuli):
             inst = rpyc.enable_async_methods(g.attachNewNode("InvadingAgent"))
             inst.setPos(self.pos.getX(),self.pos.getY(),self.pos.getZ())
             # also hide the agent from the satmap cameras (using the appropriate masks)
-            for c in [1,2]:
-                inst.hide(engines[i].pandac.BitMask32.bit(c))
+            #for c in [1,2]:
+            #    inst.hide(engines[i].pandac.BitMask32.bit(c))
             self.instances.append(inst)
             m.instanceTo(inst)
             self.pos_functions.append(inst.setPos)
@@ -3014,7 +3019,7 @@ class SceneBase(LatentModule):
         # terrain placement parameters         
         self.terrainsize = 10000                        # size of the terrain map, in meters (edge length)
         self.terrainheight = 400.0                      # height of the terrain, in meters (black to white is rescaled to this range)
-        self.terrain_offset = 0.0                       # vertical offset of the terrain, in meters
+        self.terrain_offset = -32.35                    # vertical offset of the terrain, in meters
         self.terrain_rot = 0                            # rotation of the terrain, in degrees
         self.terrain_rescale = (0.74,0.74,1.0)          # rescaling factor of the terrain (for whatever reason...)
 
@@ -3099,6 +3104,8 @@ class SceneBase(LatentModule):
             terrain_root.reparentTo(self.terrain_node)
             terrain_root.setPos(-self.terrainsize/2 + 0.5,-self.terrainsize/2 + 0.5,self.terrain_offset)
             terrain_root.setScale(self.terrainsize/1025.0,self.terrainsize/1025.0,self.terrainheight)
+            terrain_root.setBin("background", 1)
+            terrain_root.setDepthOffset(-1)
             self.terrain.generate()
             print "done."
 
@@ -3146,7 +3153,7 @@ class SceneBase(LatentModule):
         viewport.setCamera(cam)
         return viewport
 
-    def create_agent(self,name):
+    def find_agent(self,name):
         """Create an agent instance (actually look it up from what's contained in the scene anyway)."""
         tmp = self.city.find("**/" + name + "*")
         return tmp
@@ -3296,7 +3303,7 @@ class ClientGame(SceneBase):
         self.satmap_task_args = {}                          # arguments for the satellite map task
         self.sound_task_args = {# diable one of the channels # arguments for the sound task
                                 # 'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
-                                'sound_directions' : {'front':0, 'left':-1, 'right':1}
+                                'sound_directions' : {'left':-1, 'right':1}
                                 }
         self.attention_set_args = {}                        # arguments for the attention set management
 
@@ -3366,8 +3373,8 @@ class ClientGame(SceneBase):
         # create a camera that is attached to the agent
         self.agent_camera = rpyc.enable_async_methods(self._engine.pandac.NodePath(self._engine.pandac.Camera('world_camera')))
         self.agent_camera.reparentTo(self.agents[self.num].find("**/*Cam*"))
-        self.agent_camera.setHpr(-90,90,-90) # coordinate system switcharoo...
-        self.agent_camera.setPos(0,0,-0.5)
+        self.agent_camera.setP(90)
+        self.agent_camera.setZ(self.agent_camera.getZ()+self.master.vehicle_camera_plane_shift)
         # set up the lens
         camnode = rpyc.enable_async_methods(self.agent_camera.node())
         camnode.getLens().setNear(0.5)
@@ -3791,11 +3798,11 @@ class Main(SceneBase):
         self.controllable_ids = ["Alpha","Bravo"]               # call-signs of voice-controllable agents  
         self.developer = True                                   # developer mode: no extra frills
         self.skip_clients = False                               # skip client check-in confirmation
-        self.no_terrain = False                                 # don't load terrain
+        self.no_terrain = False                                  # don't load terrain
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 1                                    # permutation number; used to determine the mission mix
+        self.permutation = 3                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
 
@@ -3809,24 +3816,25 @@ class Main(SceneBase):
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
-        self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
-        #self.world_types = ['LSE_oldcity_test_zup_inches']      # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
-                                                                # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
-        self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
-        self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
-        self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
-
         #self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
+                                                                 # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
+        #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
+        #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
+        #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
+
+        #self.world_types = ['CityAlmostOrig_Coordsystesting']               # the possible environments; there must be a file 'media/<name>.bam' that
         #                                                        # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
         #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
         #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
         #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
 
-        #self.world_types = ['LSE_oldcity_test']                    # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
-        #                                                         # and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
-        #self.terrain_types = ['LSE_desertplains_smooth']         # the possible terrain types
-        #self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
-        #self.truck_name = "Truck"
+        self.world_types = ['CityMedium']                        # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        self.terrain_types = ['LSE_desertplains_flat']         # the possible terrain types
+        self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
+        self.truck_name = "Truck"
+
+        #self.world_types = ['CityLarge']                        # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        #self.terrain_types = ['LSE_desertplains_flat']         # the possible terrain types
 
         # enabled attention set
         self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
@@ -3851,7 +3859,7 @@ class Main(SceneBase):
         self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others)
         self.brake_force = 10                                   # force of the brakes
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
-        self.steering_dampspeed = 15.0                          # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
+        self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
                                                                 # to narrow steering range at higher speeds
         self.vehicle_upper_speed = 40                           # in kilometers per hour -- this is where the engine starts to top out
         self.vehicle_top_speed = 50                             # in kilometers per hour -- the engine cannot accelerate beyond this
@@ -3882,11 +3890,15 @@ class Main(SceneBase):
         self.vehicle_wheel_lateral_offset = 0.25                # the lateral offset (left/right) of the wheels from the center of mass
         self.vehicle_wheel_longitudinal_offset = 0.4            # the longitudinal offset (front/back) of the wheels from the center of mass
         self.vehicle_wheel_vertical_offset = 0.1                # the vertical offset (up/down) of the wheel axes from the center of mass
-        self.vehicle_camera_pos = (0,0.5,0.25)                  # offset of the camera relative to the vehicle body (center of mass)
         self.vehicle_mass = 400.0                               # mass, in kilograms, of the vehicle
-        self.vehicle_chassis_size = (0.25, 0.45, 0.25)          # size (width/depth/height) of the vehicle chassis
-        self.vehicle_chassis_offset = (0, 0, 0.25)              # offset of the vehicle chassis center relative to the center of mass
+        self.vehicle_chassis_size = (0.25, 0.54, 0.25)          # size (width/depth/height) of the vehicle chassis (was 0.25/0.45/0.25)
+        self.vehicle_chassis_offset = (0, 0.055, 0.25)          # offset of the vehicle chassis center relative to the center of mass (was 0/0/0.25)
+        self.vehicle_geometry_offset = (0,0.47,0.27)            # offset of the vehicle graphics geometry relative to the chassis (center of mass) (was 0/0.5/0.25)
+        self.vehicle_camera_plane_shift = -0.35                 # shift of the camera position to compensate for undesirable near clipping
         self.vehicle_roll_friction = 0.5                        # roll friction of the vehicle (slows it down)
+
+        # terrain collision
+        self.terrain_collision_offset = 2                       # z offset of the terrain's collision mesh
 
         # aerial control parameters
         self.rise_time = 5                                      # time it takes a drone to ramp up the rising force from 0 to max
@@ -3931,9 +3943,9 @@ class Main(SceneBase):
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
-        self.pancam_wanderer_range = (250,250)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
+        self.pancam_wanderer_range = (150,150)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
-        self.checkpoint_count = (10,20)                         # number of checkpoints to go through
+        self.checkpoint_count = (10,18)                         # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
         self.checkpoint_max_distance = 150                      # maximum direct distance between any two successive checkpoints on a tour
         self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
@@ -4233,9 +4245,9 @@ class Main(SceneBase):
         """ Create the player-controlled agents. """
         # create the local and remote player agents (these are abstract scene nodes)
         for k in range(len(self.clients)):
-            self.agents.append(self.create_agent(self.agent_names[k]))
+            self.agents.append(self.find_agent(self.agent_names[k]))
             for cl in self.clients:
-                cl.agents.append(rpyc.enable_async_methods(cl.create_agent(self.agent_names[k])))
+                cl.agents.append(rpyc.enable_async_methods(cl.find_agent(self.agent_names[k])))
                 cl.update_agents_poshpr.append(cl.agents[k].setPosHpr)                    
 
         # set up a process that broadcasts the local (dynamic) gamestate to the clients (entity positions, etc.)
@@ -4305,6 +4317,8 @@ class Main(SceneBase):
                 self.play_coop_aerialguide()
             elif missiontype == 'coop-secureperimeter':
                 self.play_secureperimeter()
+            elif missiontype == 'indiv-freeroam':
+                self.play_freeroam()
             else:
                 self.write('This mission type (' + missiontype + ') has not yet been implemented.',5)
             missiondisplay.destroy()
@@ -4316,9 +4330,7 @@ class Main(SceneBase):
             lulldisplay = self.write('Current lull #: ' + str(b+1) + '/' + str(self.num_blocks-1),pos=(-1.5,-0.95),scale=0.05,duration=max_duration)
             lulltype = self.lull_order[b]
             self.marker('Experiment Control/Sequence/Lull Begins/%s' % lulltype)
-            if lulltype == 'lull-wait':
-                self.play_lullwait()
-            elif lulltype == 'lull-deep':
+            if lulltype == 'lull-deep':
                 self.play_lulldeep()
             else:
                 self.write('This lull mission type (' + lulltype + ') has not yet been implemented.',5)
@@ -4339,7 +4351,7 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
             self.reset_control_scheme(controlscheme,randomize=False)
             # disable the viewport side task
-            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
+            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the checkpoint mission on your own. Please ignore your partner for now.")
@@ -4403,11 +4415,11 @@ class Main(SceneBase):
             accept_message = self.clients[self.panning_idx].tag + '-report'
             self.accept(accept_message, lambda: self.on_client_report(self.panning_idx))
             # disable the viewport side tasks
-            self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
-            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
+            self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
+            self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
-            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.")
+            self.clients[self.panning_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.")
             self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.")
             self.sleep(5)
             # set up periodic score update
@@ -4462,9 +4474,11 @@ class Main(SceneBase):
                                             # then it's a genuine miss!
                                             if a.directly_visible_since[c] <= a.potentially_visible_since[c] and a.was_directly_visible_for[c] > self.short_spotting_cutoff:
                                                 # and it was directly visible for long enough during this encounter to be counted as a full-visible miss
+                                                self.marker('Experiment Control/Task/PanTheCam/Visible Agent Report Missed/{identifier:%i}, Participants/ID/%i' % (a.identifier,self.panning_idx))
                                                 self.clients[c].overall_score.score_event(self.pancam_missed_loss)
                                             else:
                                                 # it was never really in view so we don't penalize quite as badly
+                                                self.marker('Experiment Control/Task/PanTheCam/Invisible Agent Report Missed/{identifier:%i}, Participants/ID/%i' % (a.identifier,self.panning_idx))
                                                 self.clients[c].overall_score.score_event(self.pancam_unseen_loss)
                             a.potentially_invisible_since[c] = now
                         a.is_potentially_visible[c] = potentially_visible
@@ -4504,7 +4518,7 @@ class Main(SceneBase):
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # show the instructions
-            self.broadcast_message(', starting now, perform the cooperative checkpoint mission with your partner.')
+            self.broadcast_message('starting now, perform the cooperative checkpoint mission with your partner.')
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
@@ -4552,8 +4566,8 @@ class Main(SceneBase):
             self.clients[self.vehicle_idx].toggle_satmap(False)
             self.clients[self.aerial_idx].toggle_satmap(True)
             # disable the viewport side task for the aerial subject and satmap side tasks for driving subject
-            self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['camera view']))
-            self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map']))
+            self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
+            self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map objects']))
             # display instructions for everyone
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions.")
             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', starting now, perform the aerial guidance mission with your partner. Guide your partner through the checkpoints.')
@@ -4637,7 +4651,7 @@ class Main(SceneBase):
             self.create_invaders(self.invader_count)
             self.create_controllables()
             # show instructions
-            self.broadcast_message(', starting now, perform the secure-the-perimeter mission with your partner.')
+            self.broadcast_message('starting now, perform the secure-the-perimeter mission with your partner.')
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]], appendTask=True)
@@ -4718,12 +4732,23 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
                 cl.attention_manager.mask_regions([])
             self.reset_control_scheme(['static','static'])
-            self.broadcast_message(', starting now, do nothing except watch and respond to the red warning light for the next few minutes.')
+            self.broadcast_message('starting now, do nothing except watch and respond to the red warning light for the next few minutes.')
             self.sleep(5)
             self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
         finally:
             for cl in self.clients:
                 cl.attention_manager.mask_regions(self.available_attention_set)
+
+    @livecoding
+    def play_freeroam(self):
+        """
+        A testing mission that allows the subjects to roam freely.
+        """
+        for cl in self.clients:
+            cl.toggle_satmap(True)
+        self.reset_control_scheme(['vehicle','vehicle'])
+        self.broadcast_message('starting now, you may roam freely.')
+        self.sleep(10000)
 
     # ====================
     # === PHYSICS CODE ===
@@ -4737,8 +4762,6 @@ class Main(SceneBase):
         # create physics simulation
         self.physics = BulletWorld()
         self.physics.setGravity(Vec3(0, 0, -self.gravity))
-        self.debugnode = self.world_root.attachNewNode(BulletDebugNode('Debug'))
-        self.debugnode.show()
         # add vehicles
         for k in range(len(self.agents)):
             self.vehicles.append(self.init_physics_vehicle(self.agents[k],k))            
@@ -4781,7 +4804,7 @@ class Main(SceneBase):
             shape = BulletHeightfieldShape(PNMImage(self.terrain_heightmap),self.terrainheight,ZUp)
             np = self.world_root.attachNewNode(BulletRigidBodyNode("Terrain"))
             np.node().addShape(shape)
-            np.setPos(0.0,0.0,self.terrainheight/2.0 + self.terrain_offset+0.25)
+            np.setPos(0.0,0.0,self.terrainheight/2.0 + self.terrain_offset + self.terrain_collision_offset)
             np.setScale(self.terrain_rescale[0]*self.terrainsize/1025.0,self.terrain_rescale[1]*self.terrainsize/1025.0,1.0)
             np.setCollideMask(BitMask32.allOn())
             self.physics.attachRigidBody(np.node())
@@ -4791,29 +4814,27 @@ class Main(SceneBase):
     def init_physics_vehicle(self,sourcenode,k):
         """ Init a player-controlled vehicle. """
         print "Setting up player-controlled vehicle...",        
-        # add chassis
+        # add chassis, using the transform of the agent vehicle
         chassisshape = BulletBoxShape(Vec3(self.vehicle_chassis_size[0], self.vehicle_chassis_size[1], self.vehicle_chassis_size[2]))                
         ts = TransformState.makePos(Point3(self.vehicle_chassis_offset[0], self.vehicle_chassis_offset[1], self.vehicle_chassis_offset[2]))
         chassisnp = self.world_root.attachNewNode(BulletRigidBodyNode('Vehicle'+str(k)))
-        pos = sourcenode.getPos()
-        hpr = sourcenode.getHpr()
-        chassisnp.setPos(pos)
-        chassisnp.setHpr(hpr)
+        chassisnp.setPos(sourcenode.getPos(self.city))
+        chassisnp.setH(sourcenode.getH(chassisnp))
         chassisnp.node().addShape(chassisshape,ts)
         chassisnp.node().setMass(self.vehicle_mass)
         chassisnp.node().setDeactivationEnabled(False)
         self.physics.attachRigidBody(chassisnp.node())
-        # add vehicle
+        # add vehicle model
         vehicle = BulletVehicle(self.physics, chassisnp.node())
         self.physics.attachVehicle(vehicle)
-        # add wheels        
+        # add wheels to vehicle
         self.init_physics_wheel(vehicle, Point3( self.vehicle_wheel_lateral_offset,  self.vehicle_wheel_longitudinal_offset, self.vehicle_wheel_vertical_offset), True)
         self.init_physics_wheel(vehicle, Point3(-self.vehicle_wheel_lateral_offset,  self.vehicle_wheel_longitudinal_offset, self.vehicle_wheel_vertical_offset), True)
         self.init_physics_wheel(vehicle, Point3( self.vehicle_wheel_lateral_offset, -self.vehicle_wheel_longitudinal_offset, self.vehicle_wheel_vertical_offset), False)
         self.init_physics_wheel(vehicle, Point3(-self.vehicle_wheel_lateral_offset, -self.vehicle_wheel_longitudinal_offset, self.vehicle_wheel_vertical_offset), False)
-        # attach the camera to the vehicle node
+        # attach the renderable vehicle geometry to the physical vehicle chassis, moved up a bit (since the chassis is too high)
         sourcenode.reparentTo(chassisnp)
-        sourcenode.setPosHpr(self.vehicle_camera_pos[0],self.vehicle_camera_pos[1],self.vehicle_camera_pos[2],0,0,0)
+        sourcenode.setPosHpr(self.vehicle_geometry_offset[0],self.vehicle_geometry_offset[1],self.vehicle_geometry_offset[2],0,-90,0)
         print "done."
         return vehicle
 
@@ -5172,12 +5193,15 @@ class Main(SceneBase):
                     report_valid = True
                     if now - a.last_report_time[c] < self.double_report_cutoff:
                         # reporting the same object in too short succession
+                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
                         self.clients[c].overall_score.score_event(self.pancam_double_loss)
                     else:
                         # valid report
+                        self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
                         self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
                     a.last_report_time[c] = now
             if not report_valid:
+                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participants/ID/%i' % (c))
                 self.clients[c].overall_score.score_event(self.pancam_false_loss)
             self.last_report_press_time[c] = now
 
@@ -5401,7 +5425,7 @@ class Main(SceneBase):
         for k in range(len(self.agents)):
             pos = self.agents[k].getPos(render)
             hpr = self.agents[k].getHpr(render)
-            mysample += [pos.getX(),pos.getY(),pos.getZ(),hpr.getX(),hpr.getZ(),hpr.getZ()]
+            mysample += [pos.getX(),pos.getY(),pos.getZ(),hpr.getX(),hpr.getY(),hpr.getZ()]
         self.player_positions_outlet.push_sample(pylsl.vectorf(mysample))
 
     @livecoding
@@ -5434,6 +5458,6 @@ class Main(SceneBase):
             agent = self.navcrowd.agent_status(k)
             pos = agent.npos
             vel = agent.vel
-            mysample[k*6:(k+1)*6] = [pos.getX(),pos.getY(),pos.getZ(),vel.getX(),vel.getZ(),vel.getZ()]
+            mysample[k*6:(k+1)*6] = [pos.getX(),pos.getY(),pos.getZ(),vel.getX(),vel.getY(),vel.getZ()]
         self.agent_positions_outlet.push_sample(pylsl.vectorf(mysample))
 
