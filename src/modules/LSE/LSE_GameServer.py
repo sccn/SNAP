@@ -33,7 +33,7 @@ import random, time, threading, math, traceback, itertools
 # === MAGIC CONSTANTS ===
 # =======================
 
-server_version = '0.2'      # displayed to the experimenter so he/she can keep track of versions
+server_version = '0.3'      # displayed to the experimenter so he/she can keep track of versions
 max_duration = 500000       # the maximum feasible duration (practically infinity)
 max_agents = 20             # maximum number of simultaneous AI-controlled agents
 screen_shuffle = [1,2,3]    # the order of the screen indices from left to right (for handedness switch or random permutation)
@@ -2201,6 +2201,9 @@ class ProbedObjectsTask(LatentModule):
                                                             # a list of pairs (first one is the constructor, second one the destructor)
                  display_engines,                           # engine instances to load the models...
 
+                 active_agents = None,                      # list of indices of agents for whom to update items and generate questions (default: range(len(agents)))
+                                                            # can be updated at runtime by modifying self.active_agents
+
                  # source content
                  item_file = 'objects_with_labels.txt',     # the list of map objects to scatter on sidewalks
                  item_scale = 2.54/100.0,                   # fallback scaling for all items (to be overridden by per-iitem file content)
@@ -2305,8 +2308,10 @@ class ProbedObjectsTask(LatentModule):
         self.querydomain = querydomain
         self.scoredomain = scoredomain
 
+        # init runtime variables
         self.labels = []                   # labels for the placeable 3d models
         self.entities = []                 # the current set of entities on the map
+        self.active_agents = range(len(self.agents)) if active_agents is None else active_agents # the set of agents for whom to generate items and questions
 
     @livecoding
     def load_media(self):
@@ -2337,13 +2342,14 @@ class ProbedObjectsTask(LatentModule):
 
         while True:
             self.sleep(0.1)
+
             # get current positions of the agents
             agent_positions = []
             for i in range(len(self.agents)):
                 agent_positions.append(self.agents[i].getPos(self.scenegraph))
             # also get their view cones
-            agent_viewdirs = []
-            for i in range(len(self.agents)):            
+            agent_viewdirs = [None]*len(self.active_agents)
+            for i in range(len(self.agents)):
                 tmpdir = -self.agents[i].getMat(self.scenegraph).getRow(1)
                 agent_viewdirs.append(Vec3(tmpdir.getX(),tmpdir.getY(),tmpdir.getZ()))
 
@@ -2361,13 +2367,15 @@ class ProbedObjectsTask(LatentModule):
         # consider adding new objects (note: if we re-activate them later we should only count those that have not been pruned)
         while len(self.entities) < self.num_potentially_visible:
             # determine a good spawn position
-            # (in an acceptable range from the two player's agents and not yet visible)
             pos = generate_positions(scenegraph=self.scenegraph, navmesh=self.navmesh, physics=self.physics,
                 objectnames=self.placement_geometry,
-                invisible_from=agent_positions,
-                nearby_to=agent_positions,
-                within_cone=[[agent_positions[k],agent_viewdirs[k]] for k in range(len(self.agents))], within_cone_angle = self.add_within_fov, within_cone_param = 'any',
-                nearby_radius=self.add_radius_max, nearby_param = 'any',
+                invisible_from=agent_positions,                                                     # none of the players should see it pop up (whether active or not)
+                nearby_to=[agent_positions[k] for k in self.active_agents],                         # is nearby to any of the active agents
+                nearby_radius=self.add_radius_max,
+                nearby_param = 'any',
+                within_cone=[[agent_positions[k],agent_viewdirs[k]] for k in self.active_agents],   # is within viewcone of any of the active agents
+                within_cone_angle = self.add_within_fov,
+                within_cone_param = 'any',
                 away_radius=self.add_radius_min,
                 snap_to_navmesh=False,
                 max_retries=20
@@ -2382,6 +2390,7 @@ class ProbedObjectsTask(LatentModule):
             color = random.choice(self.item_colors.keys())
 
             # add it to the display scene graphs (keeping track of them in scene_instances)
+            # added to both agent's worldspace since the world should be consistent for both
             removers = []
             for i in range(len(self.display_scenegraphs)):
                 g = self.display_scenegraphs[i]
@@ -2401,7 +2410,7 @@ class ProbedObjectsTask(LatentModule):
     def update_items(self,agent_positions, agent_viewdirs):
         """ Update the status of the items (visible, etc) and schedule queries if applicable. """
 
-        # status updates and logic for the two agents
+        # status updates and logic for the agents
         for a in range(len(self.agents)):
             apos = agent_positions[a]
             adir = agent_viewdirs[a]
@@ -2455,6 +2464,12 @@ class ProbedObjectsTask(LatentModule):
 
                 # consider questions for scheduling (for the candidate set)
                 if self.focused[a] and ent.is_candidate[a] and not ent.has_generated_question[a] and not ent.excluded_from_questions[a]:
+                    if a not in self.active_agents:
+                        # if the agent is not active we exclude this item from questions
+                        # note that all other properties are still tracked intentionally -- since we don't want questions to pop up out of the blue after an agent becomesa active again
+                        ent.excluded_from_questions[a] = True
+                        continue
+
                     color = ent.color
                     label = ent.label
                     direction = ent.last_visible_side[a]
@@ -4270,7 +4285,8 @@ class Main(SceneBase):
         self.worldmap_task = self.launch(ProbedObjectsTask(
             querypresenters=[self.clients[0].querypresenter,self.clients[1].querypresenter],
             report_scorecounters=[self.clients[0].viewport_score,self.clients[1].viewport_score],
-            agents = [self.agents[0]],
+            agents = [self.agents[0],self.agents[0]],
+            active_agents = [],
             display_scenegraphs = [self.city,self.clients[0].city,self.clients[1].city],
             display_funcs = [(create_worldspace_instance,destroy_worldspace_instance),
                              (self.clients[0].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_instance,
@@ -4352,6 +4368,7 @@ class Main(SceneBase):
             self.reset_control_scheme(controlscheme,randomize=False)
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
+            self.worldmap_task.active_agents = [self.vehicle_idx]
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the checkpoint mission on your own. Please ignore your partner for now.")
@@ -4417,6 +4434,7 @@ class Main(SceneBase):
             # disable the viewport side tasks
             self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
+            self.worldmap_task.active_agents = []
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
             self.clients[self.panning_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.")
@@ -4505,6 +4523,8 @@ class Main(SceneBase):
             for cl in self.clients:
                 cl.toggle_satmap(True)
             self.reset_control_scheme(['vehicle','vehicle'])
+            # both agents get the worldmap task
+            self.worldmap_task.active_agents = [0,1]
             # generate new checkpoint sequence
             if not (self.use_manual_checkpoints and self.checkpoints):
                 self.checkpoints = generate_path(
@@ -4568,6 +4588,7 @@ class Main(SceneBase):
             # disable the viewport side task for the aerial subject and satmap side tasks for driving subject
             self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map objects']))
+            self.worldmap_task.active_agents = [self.vehicle_idx]
             # display instructions for everyone
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions.")
             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', starting now, perform the aerial guidance mission with your partner. Guide your partner through the checkpoints.')
@@ -4648,6 +4669,7 @@ class Main(SceneBase):
             for cl in self.clients:
                 cl.toggle_satmap(True)
             self.reset_control_scheme(['vehicle','vehicle'])
+            self.worldmap_task.active_agents = [0,1]
             self.create_invaders(self.invader_count)
             self.create_controllables()
             # show instructions
@@ -4732,6 +4754,7 @@ class Main(SceneBase):
                 cl.toggle_satmap(True)
                 cl.attention_manager.mask_regions([])
             self.reset_control_scheme(['static','static'])
+            self.worldmap_task.active_agents = []
             self.broadcast_message('starting now, do nothing except watch and respond to the red warning light for the next few minutes.')
             self.sleep(5)
             self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
@@ -4747,6 +4770,7 @@ class Main(SceneBase):
         for cl in self.clients:
             cl.toggle_satmap(True)
         self.reset_control_scheme(['vehicle','vehicle'])
+        self.worldmap_task.active_agents = [0,1]
         self.broadcast_message('starting now, you may roam freely.')
         self.sleep(10000)
 
