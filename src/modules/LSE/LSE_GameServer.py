@@ -299,25 +299,13 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                 else: 
                     print "Nearby_param must be 'any' or 'all'"
 
-            # check if outside radius from each point in away_from
-            if away_from and away_radius:
-                accept = True
-                for k in range(len(away_from)):
-                    p = away_from[k]
-                    diff = (pos - p)
-                    if Point3(diff.getX()/away_radius[k].getX(),diff.getY()/away_radius[k].getY(),diff.getZ()/away_radius[k].getZ()).length() < 1:
-                        accept = False
-                        break
-                if not accept:
-                    away_fails += 1
-                    continue
-
             # check if within conic constraint regions
             if (within_cone is not None) and (within_cone_angle is not None):
                 if within_cone_param == 'all':
                     accept = True
                     for cone in within_cone:
-                        if abs(cone[1].angleDeg(Vec3(pos - cone[0]))) > within_cone_angle/2:
+                        diff = Vec3(pos - cone[0])
+                        if diff.normalize() and abs(cone[1].angleDeg(diff)) > within_cone_angle/2:
                             accept = False
                             break
                     if not accept:
@@ -326,7 +314,8 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                 elif within_cone_param == 'any':
                     accept = False
                     for cone in within_cone:
-                        if abs(cone[1].angleDeg(Vec3(pos - cone[0]))) <= within_cone_angle/2:
+                        diff = Vec3(pos - cone[0])
+                        if diff.normalize() and abs(cone[1].angleDeg(diff)) <= within_cone_angle/2:
                             accept = True
                             break
                     if not accept:
@@ -344,6 +333,19 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         break
                 if not accept:
                     box_fails += 1
+                    continue
+
+            # check if outside radius from each point in away_from
+            if away_from and away_radius:
+                accept = True
+                for k in range(len(away_from)):
+                    p = away_from[k]
+                    diff = (pos - p)
+                    if Point3(diff.getX()/away_radius[k].getX(),diff.getY()/away_radius[k].getY(),diff.getZ()/away_radius[k].getZ()).length() < 1:
+                        accept = False
+                        break
+                if not accept:
+                    away_fails += 1
                     continue
 
             # check if the point is invisible from each point in the the given list
@@ -2221,13 +2223,15 @@ class ProbedObjectsTask(LatentModule):
 
                  # adding and pruning entities
                  placement_geometry = 'Pavement',           # this is the target geometry for placing objects
-                 add_within_fov = 45,                       # add items within the given field of view (but behind buildings, i.e., around corners)
+                 add_within_fov = 50,                       # add items within the given field of view (but behind buildings, i.e., around corners)
                  num_potentially_visible = 15,              # the initial number of simultaneously potentially visible objects to maintain (may be varied over time)
                  max_visible = 10,                          # don't add more objects if there are currently this many objects in view
                  add_radius_max = 75,                       # add new potentially visible objects within this radius, in meters (note: should also use cone segment constraint!)
                  add_radius_min = 15,                       # add new potentially visible objects outside this radius, in meters
-                 prune_radius = 100,                        # prune old objects when they pass out of this radius (and are invisible)
                  entity_height = 1,                         # height of the entities above ground, for more accurate visibility tests
+                 max_retries_per_cycle = 15,                # this determines how much time per frame may be spent trying to sample positions to be added
+                 prune_radius = 100,                        # prune old objects when they pass out of this radius (and are invisible)
+                 prune_viewcone = 90,                        # objects outside this viewcone can be pruned (if they are far enough away)
 
                  # promotion of objects to candidates for questions                 
                  candidate_radius = 20,                      # objects can only become candidate for questions if they get within this radius
@@ -2252,8 +2256,9 @@ class ProbedObjectsTask(LatentModule):
                  reportable_objects = ('Sand bags',),        # subset of objects that should be reported directly
                  reportable_timeout = 5,                     # timeout for reporting reportable objects
                  reportable_score_multiplier = 2,            # score multiplier for gain/loss/etc in case of reportable items
+                 reportable_fraction = 0.05,                 # fraction of reportable items among all items
 
-                 # scoring                 
+                 # scoring
                  loss_incorrect=-2,                          # amount of loss incurred when incorrectly answering
                  gain_correct=2,                             # amount of reward gained when answering correctly
                  loss_skipped=-1,                            # amount of loss incurred when admitting a miss
@@ -2288,8 +2293,10 @@ class ProbedObjectsTask(LatentModule):
         self.add_radius_min = add_radius_min
         self.add_radius_max = add_radius_max
         self.prune_radius = prune_radius
+        self.prune_viewcone = prune_viewcone
         self.entity_height = entity_height
         self.vischeck_max_cutoff = vischeck_max_cutoff
+        self.max_retries_per_cycle = max_retries_per_cycle
 
         self.candidate_radius = candidate_radius
         self.candidate_viewcone = candidate_viewcone
@@ -2309,6 +2316,7 @@ class ProbedObjectsTask(LatentModule):
         self.reportable_objects = reportable_objects
         self.reportable_score_multiplier = reportable_score_multiplier
         self.reportable_timeout = reportable_timeout
+        self.reportable_fraction = reportable_fraction
 
         self.loss_incorrect = loss_incorrect
         self.gain_correct = gain_correct
@@ -2359,7 +2367,8 @@ class ProbedObjectsTask(LatentModule):
             # also get their view cones
             agent_viewdirs = []
             for i in range(len(self.agents)):
-                tmpdir = -self.agents[i].getParent().getMat(self.scenegraph).getRow(1)
+                tmpdir = self.agents[i].getParent().getMat(self.scenegraph).getRow(1)
+                tmpdir.normalize()
                 agent_viewdirs.append(Vec3(tmpdir.getX(),tmpdir.getY(),tmpdir.getZ()))
 
             # maintain the desired number of potentially visible items (by adding new ones if necessary)
@@ -2387,15 +2396,20 @@ class ProbedObjectsTask(LatentModule):
                 within_cone_param = 'any',
                 away_radius=self.add_radius_min,
                 snap_to_navmesh=False,
-                max_retries=10
+                max_retries=self.max_retries_per_cycle
             )
             if len(pos) == 0:
                 break # in some cases the conditions can be unsatisfiable; in this case we don't add
             pos = pos[0]
 
             # pick a random object label
-            label = random.choice(self.labels)
-            # pick a random color
+            if random.random() < self.reportable_fraction:
+                # from the reportable set
+                label = random.choice(self.reportable_objects)
+            else:
+                # from the non-reportable set
+                label = random.choice(list(set(self.labels).difference(set(self.reportable_objects))))
+            # pick a random colorwwwwwwwwwwwwwwwwwww
             color = random.choice(self.item_colors.keys())
 
             # add it to the display scene graphs (keeping track of them in scene_instances)
@@ -2433,14 +2447,14 @@ class ProbedObjectsTask(LatentModule):
                 strictly_visible = line_of_sight(physics=self.physics,
                     src_pos=apos,
                     dst_pos=Point3(ent.pos.getX(),ent.pos.getY(),ent.pos.getZ()+self.entity_height),
-                    src_dir=-adir,
+                    src_dir=adir,
                     src_maxsight=self.vischeck_max_cutoff,
                     src_fov=self.candidate_viewcone,
                     dst_margin=2) is not None
                 sufficiently_invisible = line_of_sight(physics=self.physics,
                     src_pos=apos,
                     dst_pos=Point3(ent.pos.getX(),ent.pos.getY(),ent.pos.getZ()+self.entity_height),
-                    src_dir=-adir,
+                    src_dir=adir,
                     src_maxsight=self.vischeck_max_cutoff,
                     src_fov=self.ask_outside_viewcone,
                     dst_margin=2) is None
@@ -2457,8 +2471,9 @@ class ProbedObjectsTask(LatentModule):
                     if time.time() - ent.has_been_clearly_visible_since[a] > self.candidate_visible_duration and not ent.has_generated_question[a] and not ent.is_candidate[a]:
                         self.marker('Experiment Control/Task/Sidewalk Items/Becomes Question Candidate/{identifier:%i}, Participants/ID/%i' % (ent.identifier,a))
                         ent.is_candidate[a] = True
-                        # calculate on what side the stimulus was last sighted
-                    ent.last_visible_side[a] = 'left' if agent_viewdirs[a].angleDeg(Vec3(ent.pos - apos)) < 0 else 'right'
+                    # calculate on what side the stimulus was last sighted
+                    diff = Vec3(ent.pos - apos)
+                    ent.last_visible_side[a] = 'left' if (diff.normalize() and agent_viewdirs[a].angleDeg(diff) < 0) else 'right'
                 else:
                     ent.has_been_clearly_visible_since[a] = None
 
@@ -2562,12 +2577,11 @@ class ProbedObjectsTask(LatentModule):
         for e in reversed(range(len(self.entities))):
             # check if it's out of range and outside the field of view for both agents...
             in_range = False
-            for a in self.active_agents: # range(len(self.agents)):
+            for a in range(len(self.agents)): #self.active_agents:
                 pos = self.entities[e].pos
                 direction = pos - agent_positions[a]
-                if direction.length() < self.prune_radius:
-                    if abs(agent_viewdirs[a].angleDeg(direction)) < self.candidate_viewcone/2:
-                        in_range = True
+                if direction.length() < self.prune_radius or direction.normalize() and abs(agent_viewdirs[a].angleDeg(direction)) < self.prune_viewcone/2:
+                    in_range = True
             if not in_range:
                 # delete it
                 print "Trying to delete entity..."
@@ -2579,7 +2593,6 @@ class ProbedObjectsTask(LatentModule):
     def set_focused(self,idx,tf):
         """ Set the focused state of this task for a given agent/client. """
         self.focused[idx] = tf
-
 
 
 # ==========================
@@ -3916,7 +3929,7 @@ class Main(SceneBase):
         # block structure
         self.permutation = 1                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
-        self.num_missions_per_block = (3,5)                    # number of missions per block [minimum,maximum]
+        self.num_missions_per_block = (4,6)                    # number of missions per block [minimum,maximum]
 
         # mission mix
         self.lull_mission_types = ['lull-deep']                 # possible lull missions (appear between any two blocks)
@@ -3928,7 +3941,7 @@ class Main(SceneBase):
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
-        self.world_types = ['CityMedium']                          # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        self.world_types = ['CityMedium2']                       # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
         self.terrain_types = ['LSE_desertplains_flat']           # the possible terrain types
         self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
         self.truck_name = "Truck"                                # name of the truck entity in the world: this is used to position/find the truck location
@@ -4026,7 +4039,7 @@ class Main(SceneBase):
         self.aerial_linear_damping = 0.95                       # linear damping (air friction) of aerial vehicle
 
         # panning control parameters
-        self.pan_speed = 10                                     # speed at which the camera pans
+        self.pan_speed = 5                                      # speed at which the camera pans
         self.report_repeat_press_interval = 0.75                # if the report button is held down for longer than this, a second report action will be triggered
 
         # wandering agent parameters
@@ -4475,7 +4488,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
+            self.reset_control_scheme(controlscheme,randomize=True) # TODO: remove the randomize=False when done debugging
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.worldmap_task.active_agents = [self.vehicle_idx]
@@ -4533,7 +4546,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
+            self.reset_control_scheme(controlscheme,randomize=True) # TODO: remove the randomize=False when done debugging
 
             # determine the navigation zone around the relevant subject
             v = self.agents[self.panning_idx]
