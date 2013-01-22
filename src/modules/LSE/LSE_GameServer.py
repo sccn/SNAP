@@ -651,7 +651,9 @@ class ScoreCounter(BasicStimuli):
                  riser_updrift = 0.1,                 # updrift in units/second
                  riser_color = ((0.2,1,0.2,1),(1,0.2,0.2,1)), # initial colors of the riser (bonus,penalty)
                  riser_fade = -0.1,                   # value added to the opacity per second
-                 riser_fontsize = 5                   # font size of the text
+                 riser_fontsize = 5,                  # font size of the text
+
+                 dependent_score = None               # optionally a dependent score counter that shall aslo be updated
                  ):
         BasicStimuli.__init__(self)
         if not sound_params:
@@ -701,6 +703,8 @@ class ScoreCounter(BasicStimuli):
         self.riser_fade = riser_fade
         self.riser_fontsize = riser_fontsize
 
+        self.dependent_score = dependent_score
+
         self.paused = False
         self._is_failure = False
 
@@ -742,6 +746,8 @@ class ScoreCounter(BasicStimuli):
             self.play_delta_sounds(delta)
         self.update_graphics()
 
+        if self.dependent_score:
+            self.dependent_score.score_event(delta,nosound=True)
 
     # === graphics code ===
 
@@ -1279,6 +1285,8 @@ class StressTask(LatentModule):
         # this is the stress parameter
         self.stress_level = low_stress_value
 
+        self.disabled = False    # whether the task is temporarily disabled
+
     def run(self):
         self.log_setup_parameters()
         while True:
@@ -1290,6 +1298,13 @@ class StressTask(LatentModule):
             self.marker('State/Stress Level/%f, Participant/ID/%i' % (self.stress_level,self.client_idx))
             self.sleep(duration)
 
+            if self.disabled:
+                while self.disabled:
+                    # do not enter a high-stres period while we're still disabled
+                    self.sleep(1)
+                # and generally skip forward to the slow-stress period after the pause
+                continue
+
             # enter a high stress period
             rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume)
             self.iconpresenterfunc(self.high_transition_icon)
@@ -1300,47 +1315,7 @@ class StressTask(LatentModule):
 
 
 
-class LoadTask(LatentModule):
-    """
-    Modulates a load parameter according to a schedule (in a piecewise linear manner).
-    Has no effects by itself but other tasks can modulate their intensity or induced workload according to this
-    parameter (e.g., number of simultaneously visible items).
-    """
 
-    def __init__(self,
-                 client_idx,                                             # index of the affected participant
-                 maintenance_duration = lambda: random.uniform(60,240),  # the duration of low-stress periods, in seconds
-                 transition_duration = lambda: random.uniform(15,60),    # the duration of high-stress periods, in seconds
-                 load_distribution = lambda: random.uniform(0.2,0.8),    # the stress load value during low periods
-                 ):
-        LatentModule.__init__(self)
-        self.maintenance_duration = maintenance_duration
-        self.transition_duration = transition_duration
-        self.load_distribution = load_distribution
-        self.client_idx = client_idx
-
-        # pick a low initial load level
-        self.load_level = min(load_distribution(),load_distribution(),load_distribution(),load_distribution(),load_distribution())
-
-    def run(self):
-        self.log_setup_parameters()
-        while True:
-            prev_loadlevel = self.load_level
-            next_loadlevel = self.load_distribution()
-            # do a linear transition between the current and next load level 
-            transition_duration = self.transition_duration()
-            t0 = time.time()
-            t1 = t0 + transition_duration
-            while True:
-                self.marker('State/Task Load/%f, Participant/ID/%i' % (self.load_level,self.client_idx))
-                self.sleep(0.25)                
-                now = time.time()
-                if now > t1:
-                    break
-                self.load_level = prev_loadlevel + (next_loadlevel - prev_loadlevel) * (now - t0) / (t1-t0)
-
-            # maintain the load level for the maintenance duration
-            self.sleep(self.maintenance_duration())   
 
 
 
@@ -1845,6 +1820,7 @@ class SatmapTask(BasicStimuli):
                  item_colors = None,                            # dict of item names to item colors (4-tuples)
                  item_scale = 8,                                # size of the items, in meters relative to ground
                  constrain_placement=True,                      # whether to constrain the item placement based on city geometry
+                 avoid_repetitions=True,                        # whether to avoid repeatedly displaying the same type of item
                  ):
         BasicStimuli.__init__(self)
         self.querypresenter = querypresenter
@@ -1875,6 +1851,7 @@ class SatmapTask(BasicStimuli):
         self.scoredomain = scoredomain
         self.client_idx = client_idx
         self.constrain_placement = constrain_placement
+        self.avoid_repetitions = avoid_repetitions
 
         # load the actual media
         self.filenames = []     # icons with associated queries
@@ -1898,6 +1875,8 @@ class SatmapTask(BasicStimuli):
         self.current_icons = []
         self.current_labels = []
         self.current_questions = []
+
+        self.previous_label = ''    # the label that was added last to the map
 
         if not self.item_colors:
             self.item_colors = {'red':(1,0.25,0.25,1), 'green':(0.25,1,0.25,1), 'blue':(0.25,0.25,1,1), 'yellow':(1,1,0,1)}
@@ -2008,9 +1987,14 @@ class SatmapTask(BasicStimuli):
                 break
 
             # chose a random shape
-            shapeidx = random.choice(range(len(self.filenames)))
-            filename = self.filenames[shapeidx]
-            label = self.labels[shapeidx]
+            while True:
+                # but make sure that its label differs from the previously added label
+                shapeidx = random.choice(range(len(self.filenames)))
+                filename = self.filenames[shapeidx]
+                label = self.labels[shapeidx]
+                if not (self.avoid_repetitions and label == self.previous_label):
+                    break
+
             # chose a random color
             color = random.choice(self.item_colors.keys())
 
@@ -2035,6 +2019,7 @@ class SatmapTask(BasicStimuli):
             self.current_labels.append(label)
             self.current_questions.append(question)
 
+            self.previous_label = label
 
 
 class SoundTask(LatentModule):
@@ -3048,14 +3033,16 @@ class SmartGizmo(BasicStimuli):
     @livecoding
     def update_satmap_clamp_box(self,cl_idx,box):
         """ Update the satmap clamp box (if any) that shall constrain the position of this checkpoint for a given client index. """
-        self.clamp_boxes[self.client_indices.index(cl_idx)] = box
-        self.update()
+        if cl_idx in self.client_indices:
+            self.clamp_boxes[self.client_indices.index(cl_idx)] = box
+            self.update()
 
     @livecoding
     def update_satmap_clip_box(self,cl_idx,box):
         """ Update the satmap clip box (if any) outside of which the item is going to be invisible. """
-        self.clip_boxes[self.client_indices.index(cl_idx)] = box
-        self.update()
+        if cl_idx in self.client_indices:
+            self.clip_boxes[self.client_indices.index(cl_idx)] = box
+            self.update()
 
     @livecoding
     def move_to(self,pos,hpr=None):
@@ -3205,12 +3192,12 @@ class SceneBase(LatentModule):
             self.terrain_node = rpyc.enable_async_methods(self._engine.pandac.NodePath('terrain_rot'))
             self.terrain_node.reparentTo(self.world_root)
             self.terrain_node.setScale(self.terrain_rescale[0],self.terrain_rescale[1],self.terrain_rescale[2])
-            terrain_root = rpyc.enable_async_methods(self.terrain.getRoot()) 
-            terrain_root.reparentTo(self.terrain_node)
-            terrain_root.setPos(-self.terrainsize/2 + 0.5,-self.terrainsize/2 + 0.5,self.terrain_offset)
-            terrain_root.setScale(self.terrainsize/1025.0,self.terrainsize/1025.0,self.terrainheight)
-            terrain_root.setBin("background", 1)
-            terrain_root.setDepthOffset(-1)
+            self.terrain_root = rpyc.enable_async_methods(self.terrain.getRoot())
+            self.terrain_root.reparentTo(self.terrain_node)
+            self.terrain_root.setPos(-self.terrainsize/2 + 0.5,-self.terrainsize/2 + 0.5,self.terrain_offset)
+            self.terrain_root.setScale(self.terrainsize/1025.0,self.terrainsize/1025.0,self.terrainheight)
+            self.terrain_root.setBin("background", 1)
+            self.terrain_root.setDepthOffset(-1)
             self.terrain.generate()
             print "done."
 
@@ -3373,6 +3360,10 @@ class ClientGame(SceneBase):
         # subtask argument overrides
         self.overall_score_args = {# display params                 # arguments for the overall score counter
                                    'bar_rect':rect(grid(2,(2,5),(1,10),'topleft',ma=0.0125),grid(2,(4,5),(1,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
+                                   # score parameters are scaled to a 2x as large range for the overall score (since everything adds into this)
+                                   'initial_score':100,             # the initial score
+                                   'maximum_level':200,             # this is the highest level that can be graphically indicated
+                                   'critical_level':50              # for completeness (lockdown doesn't apply to overall score)
                                    }
         self.satmap_score_args = {# display params                  # arguments for the satmap task score counter
                                    'bar_rect':rect(grid(3,(2,5),(2,10),'topleft',ma=0.0125),grid(3,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
@@ -3391,7 +3382,6 @@ class ClientGame(SceneBase):
         }
 
         self.stress_task_args = {}                          # arguments for the stress modulation process
-        self.load_task_args = {}                            # arguments for the load modulation task
         self.query_presenter_args = {}                      # arguments for the query presentation
         self.warning_light_args = {# presentation params    # arguments for the warning light task
                                    'pic_params':{'pos':self.warn_pos,'scale':self.warn_size}, # parameters for the picture() command
@@ -3581,21 +3571,18 @@ class ClientGame(SceneBase):
         self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
             counter_name='Overall', client_idx=self.num, bar_vertical_squish=1, **self.overall_score_args)
         self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), **self.satmap_score_args)
+            counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.satmap_score_args)
         self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Viewport', client_idx=self.num, text_color=(1,1,1,0), **self.viewport_score_args)
+            counter_name='Viewport', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.viewport_score_args)
         self.text_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Text', client_idx=self.num, text_color=(1,1,1,0), **self.textcomm_score_args)
+            counter_name='Text', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.textcomm_score_args)
         self.audio_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Chatter', client_idx=self.num, text_color=(1,1,1,0), **self.audiocomm_score_args)
+            counter_name='Chatter', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.audiocomm_score_args)
         self.sounds_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
-            counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), **self.sound_score_args)
+            counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.sound_score_args)
 
         # a stress modulation process (flips between high and low stress, keeps an indicator icon updated) 
         self.stress_task = self.launch(StressTask(iconpresenterfunc=self.stress_indicator.submit, client_idx=self.num, **self.stress_task_args))
-
-        # load modulation task (modulates a load parameter in a piecewise linear manner)
-        self.load_task = self.launch(LoadTask(client_idx=self.num, **self.load_task_args))
 
         # the object responsible for presenting queries to the subject
         self.querypresenter = QueryPresenter(
@@ -3776,6 +3763,10 @@ class ClientGame(SceneBase):
             self.satmap_task.update(self.master.agents[self.num].getPos(self.master.city))
         return task.again
 
+    def update_terrain():
+        xyz = self.agents[self.num].getPos(self.terrain_root)
+        rpyc.async(self.terrain.setFocalPoint)(xyz.getX(),xyz.getY())
+        rpyc.async(self.terrain.update)()
 
     # =================================
     # === CONNECT TO REMOTE MACHINE ===
@@ -4345,15 +4336,16 @@ class Main(SceneBase):
             # also create the (satmap) gizmo objects for the agents
             visible_to = [0,1]
             self.agent_gizmos.append(SmartGizmo(
-                display_scenegraphs=[self.clients[k].city for k in visible_to] + [self.city],
-                display_funcs=[(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
-                display_engines=[self.clients[k]._engine for k in visible_to] + [self._engine],
+                display_scenegraphs=[self.clients[j].city for j in visible_to] + [self.city],
+                display_funcs=[(self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for j in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
+                display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
                 client_indices = visible_to + [2],
-                image=[(self.own_agent_icon if i==k else self.friendly_agent_icon) for i in visible_to] + [self.friendly_agent_icon],
+                image=[(self.own_agent_icon if j==k else self.friendly_agent_icon) for j in visible_to] + [self.friendly_agent_icon],
                 scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,billboard=False,throughwalls=True))
 
         # set up a process that broadcasts the local (dynamic) gamestate to the clients (entity positions, etc.)
         taskMgr.add(self.broadcast_gamestate,"BroadcastGamestate")
+        # taskMgr.add(self.update_terrain, "UpdateTerrain") # (no need to do that if subjects don't drive over terrain)
 
     @livecoding
     def init_subtasks(self):
@@ -4842,6 +4834,7 @@ class Main(SceneBase):
             for cl in self.clients:
                 cl.toggle_satmap(True)
                 cl.attention_manager.mask_regions([])
+                cl.stress_task.disabled = True
             self.reset_control_scheme(['static','static'])
             self.worldmap_task.active_agents = []
             self.broadcast_message('starting now, do nothing except watch and respond to the red warning light for the next few minutes.')
@@ -4850,6 +4843,7 @@ class Main(SceneBase):
         finally:
             for cl in self.clients:
                 cl.attention_manager.mask_regions(self.available_attention_set)
+                cl.stress_task.disabled = False
 
     @livecoding
     def play_freeroam(self):
@@ -4983,9 +4977,6 @@ class Main(SceneBase):
             self.physics_lasttime = now
         dt = now - self.physics_lasttime
         self.physics_lasttime = now
-
-        hpr = self.agents[0].getParent().getHpr(self.city)
-        print '[' + str(hpr[0]) + ', ' + str(hpr[1]) + ', ' + str(hpr[2]) + ']'
 
         # get the controller inputs
         for client in [0,1]:
@@ -5214,6 +5205,11 @@ class Main(SceneBase):
         self.broadcast_agentstate()
         return Task.cont    
 
+    @livecoding
+    def update_terrain(self,task):
+        for cl in self.clients:
+            cl.update_terrain()
+        return task.cont
 
     # ============================================
     # === EXPERIMENTER CAMERA CONTROL HANDLERS ===

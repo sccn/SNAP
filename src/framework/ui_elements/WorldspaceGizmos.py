@@ -25,9 +25,11 @@ def create_worldspace_gizmo(
         gizmo.setDepthTest(False)
         gizmo.setDepthWrite(False)
     gizmo.setTwoSided(True)
-    return gizmo 
+    print "Created gizmo: ", gizmo
+    return gizmo
 
 def destroy_worldspace_gizmo(gizmo):
+    print "Destroying gizmo:", gizmo
     gizmo.destroy()
 
 
@@ -38,7 +40,9 @@ def create_worldspace_instance(model=None,position=(0,0,0),color=(1,1,1,0.75),sc
     inst.setHpr(hpr[0],hpr[1],hpr[2])
     inst.setColor(color)
     model.instanceTo(inst)
+    print "Created instance:", inst
     return inst
 
 def destroy_worldspace_instance(inst):
+    print "Destroying instance:", inst
     inst.removeNode()
