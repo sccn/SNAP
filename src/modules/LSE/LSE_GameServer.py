@@ -2359,7 +2359,7 @@ class ProbedObjectsTask(LatentModule):
             # also get their view cones
             agent_viewdirs = []
             for i in range(len(self.agents)):
-                tmpdir = -self.agents[i].getMat(self.scenegraph).getRow(1)
+                tmpdir = -self.agents[i].getParent().getMat(self.scenegraph).getRow(1)
                 agent_viewdirs.append(Vec3(tmpdir.getX(),tmpdir.getY(),tmpdir.getZ()))
 
             # maintain the desired number of potentially visible items (by adding new ones if necessary)
@@ -3032,7 +3032,7 @@ class SmartGizmo(BasicStimuli):
                 parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
                 color=(1,1,1,self.opacity),
-                camera_mask = ((3,4) if not self.oncamera[k] else ()) + (0,1) + (() if not self.onexperimenter else (2,)),
+                camera_mask = ((3,4) if not self.oncamera[k] else ()) + (0,1) + ((2,) if not self.onexperimenter else ()),
                 billboard=billboard,
                 throughwalls=self.throughwalls[k]))
             # add a version that's at best visible on satmaps (but never on 3d cameras)
@@ -3242,11 +3242,17 @@ class SceneBase(LatentModule):
             for k in range(len(startpos_nodes)):
                 if not k == retain_idx:
                     rpyc.async(startpos_nodes[k].removeNode)()
+                for c in startpos_nodes[retain_idx].getChildren():
+                    rpyc.async(c.wrtReparentTo)(self.city())
 
         # get the position of the waypoint at the starting location
-        waypoint = self.city.find("**/Waypoint*-lib*")
-        self.waypoint_pos = waypoint.getPos(self.city)
-        rpyc.async(waypoint.removeNode)()
+        try:
+            waypoint = self.city.find("**/Waypoint*-lib*")
+            self.waypoint_pos = waypoint.getPos(self.city)
+            rpyc.async(waypoint.removeNode)()
+        except:
+            print "This environment contains no startpos waypoint."
+            self.waypoint_pos = None
 
     @livecoding
     def destroy_static_world(self):
@@ -3922,7 +3928,7 @@ class Main(SceneBase):
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
-        self.world_types = ['CityMedium']                        # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        self.world_types = ['CityMedium']                          # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
         self.terrain_types = ['LSE_desertplains_flat']           # the possible terrain types
         self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
         self.truck_name = "Truck"                                # name of the truck entity in the world: this is used to position/find the truck location
@@ -4031,7 +4037,7 @@ class Main(SceneBase):
         self.hostile_agent_head_height = 2                      # in meters, for accurate line-of-sight checks
 
         # invading agent parameters
-        self.agent_scatter = 200                                # scatter radius around friendly agents in meters
+        self.agent_scatter = 350                                # scatter radius around friendly agents in meters
         self.invader_count = 7                                  # total number (was: 6)
 
         # controllable agent parameters
@@ -4333,8 +4339,10 @@ class Main(SceneBase):
         # get the position of the truck
         truck = self.city.find("**/" + self.truck_name + "*")
         self.truck_pos = truck.getPos(self.city)
+        if self.waypoint_pos is None:
+            self.waypoint_pos = self.truck_pos
 
-        # parse the checkpoints from the map
+            # parse the checkpoints from the map
         for node in self.city.findAllMatches('**/Checkpoint*-lib'):
             pos = node.getPos(self.city)
             self.checkpoints.append((node.getName(),[pos.getX(),pos.getY(),pos.getZ()+self.checkpoint_height]))
@@ -4553,7 +4561,7 @@ class Main(SceneBase):
                 # get player parameters
                 v = self.agents[self.panning_idx]
                 v_pos = v.getPos(self.city)
-                v_vec = v.getMat(self.city).getRow3(1)
+                v_vec = v.getParent().getMat(self.city).getRow3(1)
                 v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
                 c = self.panning_idx
                 now = time.time()
@@ -4805,7 +4813,7 @@ class Main(SceneBase):
                     # check if any invader is spotted by a friendly agent
                     for k in range(len(self.agents)):
                         v = self.agents[k]
-                        viewdir = v.getMat(self.city).getRow(1)
+                        viewdir = v.getParent().getMat(self.city).getRow(1)
                         los = line_of_sight(self.physics,v.getPos(self.city),
                             a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),
                             a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view,src_maxsight=self.fendoff_distance)
@@ -5035,7 +5043,7 @@ class Main(SceneBase):
             elif self.agent_control[client] == 'aerial':
                 # apply aerial steering
                 ch = self.vehicles[client].getChassis()
-                mat = self.agents[client].getMat(render)
+                mat = self.agents[client].getParent().getMat(render)
                 left = -mat.getRow3(0)
                 forward = mat.getRow3(1)
                 forward.setZ(0)
@@ -5077,8 +5085,8 @@ class Main(SceneBase):
             # updrift
             self.vehicles[aerial_idx].getChassis().applyCentralImpulse(Vec3(0, 0, self.rise_force_offset + self.rise_force*max(0,(self.rise_altitude-p.getZ()))))
             # axis stabilization
-            left = self.agents[aerial_idx].getMat(render).getRow3(0)
-            left_planar = self.agents[aerial_idx].getMat(render).getRow3(0)
+            left = self.agents[aerial_idx].getParent().getMat(render).getRow3(0)
+            left_planar = self.agents[aerial_idx].getParent().getMat(render).getRow3(0)
             left_planar.setZ(0)
             left_planar *= 1.0 / left_planar.length()
             correction = left.cross(left_planar) * self.axis_stabilization
@@ -5166,8 +5174,9 @@ class Main(SceneBase):
                     crowd=self.navcrowd,
                     physics=self.physics,
                     surfacegraph=self.city,
-                    scene_graphs=[self.city,self.clients[0].city,self.clients[1].city],
-                    models=[self.friendly_model,self.clients[0].friendly_model,self.clients[1].friendly_model],
+                    scene_graphs=[self.clients[0].city,self.clients[1].city,self.city],
+                    engines=[self.clients[0]._engine,self.clients[1]._engine,self._engine],
+                    models=[self.clients[0].friendly_model,self.clients[1].friendly_model,self.friendly_model],
                     spawn_pos=pos,
                     spawn_radius_max=self.controllable_scatter,
                     spawn_radius_min=self.controllable_min_spawndistance,
@@ -5323,7 +5332,7 @@ class Main(SceneBase):
             # get all agents in direct field of view
             v = self.agents[c]
             v_pos = v.getPos(self.city)
-            v_vec = v.getMat(self.city).getRow3(1)
+            v_vec = v.getParent().getMat(self.city).getRow3(1)
             v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
             # for each agent...
             for a in self.wanderers:
@@ -5355,7 +5364,7 @@ class Main(SceneBase):
         self.marker('Response/Button Press/Warn Agents')
         v = self.agents[idx]
         rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False)
-        viewdir = v.getMat(self.city).getRow(1)
+        viewdir = v.getParent().getMat(self.city).getRow(1)
         num_warnedoff = 0
         num_alreadyretreating = 0
         for a in self.invaders:
@@ -5377,6 +5386,8 @@ class Main(SceneBase):
         elif num_alreadyretreating > 0:
             # note: this message is only issued when there's not already at least one agent who was successfully warned off
             self.clients[idx].viewport_instructions.submit('This agent is already retreating.')
+        else:
+            self.clients[idx].viewport_instructions.submit('There is no agent.')
 
     @livecoding
     def on_client_speech(self,
@@ -5432,19 +5443,19 @@ class Main(SceneBase):
                     ag.move_to_location(cl.getPos(self.city))
                 elif tokens[2:6] == ["in","front","of","me"]:
                     pos = cl.getPos(self.city)
-                    front = cl.getMat(self.city).getRow(1)
+                    front = cl.getParent().getMat(self.city).getRow(1)
                     ag.move_to_location(pos + Vec3(front.getX(),front.getY(),front.getZ()) * self.relative_move_distance)
                 elif tokens[2:4] == ["behind","me"]:
                     pos = cl.getPos(self.city)
-                    front = cl.getMat(self.city).getRow(1)                        
+                    front = cl.getParent().getMat(self.city).getRow(1)
                     ag.move_to_location(pos - Vec3(front.getX(),front.getY(),front.getZ()) * self.relative_move_distance)
                 elif tokens[2:5] == ["to","my","left"]:
                     pos = cl.getPos(self.city)
-                    front = cl.getMat(self.city).getRow(0)
+                    front = cl.getParent().getMat(self.city).getRow(0)
                     ag.move_to_location(pos - Vec3(front.getX(),front.getY(),front.getZ()) * self.relative_move_distance)
                 elif tokens[2:5] == ["to","my","right"]:
                     pos = cl.getPos(self.city)
-                    front = cl.getMat(self.city).getRow(0)
+                    front = cl.getParent().getMat(self.city).getRow(0)
                     ag.move_to_location(pos + Vec3(front.getX(),front.getY(),front.getZ()) * self.relative_move_distance)
                 elif tokens[2:4] == ["to","truck"]:
                     ag.move_to_location(self.truck_pos)
