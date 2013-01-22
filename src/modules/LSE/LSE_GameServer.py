@@ -2391,13 +2391,14 @@ class ProbedObjectsTask(LatentModule):
                 inst = rpyc.async(self.display_funcs[i][0])(model=m,
                     position=(pos.getX(),pos.getY(),pos.getZ()),hpr=(random.random()*360,0,0),
                     color=self.item_colors[color],parent=g)
-                removers.append(lambda: rpyc.async(self.display_funcs[i][1])(inst))
+                removers.append((self.display_funcs[i][1],inst))
 
             new_entity = ProbedObjectsTask.TrackedEntity(pos=pos,color=color,label=label,removers=removers)
             # generate marker for logging
             self.marker('Experiment Control/Task/Sidewalk Items/Add/{identifier:%i|label:%s|color:%s|x:%f|y:%f|z:%f}' % (new_entity.identifier,label,color,pos[0],pos[1],pos[2]))
             # add to tracking list
             self.entities.append(new_entity)
+            print "len(entities) =",len(self.entities)
 
     @livecoding
     def update_items(self,agent_positions, agent_viewdirs):
@@ -2545,16 +2546,17 @@ class ProbedObjectsTask(LatentModule):
         for e in reversed(range(len(self.entities))):
             # check if it's out of range and outside the field of view for both agents...
             in_range = False
-            for a in range(len(self.agents)):
+            for a in self.active_agents: # range(len(self.agents)):
                 pos = self.entities[e].pos
                 direction = pos - agent_positions[a]
-                if direction.length() > self.prune_radius:
+                if direction.length() < self.prune_radius:
                     if abs(agent_viewdirs[a].angleDeg(direction)) < self.candidate_viewcone/2:
                         in_range = True
             if not in_range:
                 # delete it
+                print "Trying to delete entity..."
                 for remover in self.entities[e].removers:
-                    remover()
+                    rpyc.async(remover[0])(remover[1])
                 self.marker('Experiment Control/Task/Sidewalk Items/Remove/{identifier:%i|label:%s|color:%s|x:%f|y:%f|z:%f}' % (self.entities[e].identifier,self.entities[e].label,self.entities[e].color,pos[0],pos[1],pos[2]))
                 del self.entities[e]
 
@@ -3071,8 +3073,6 @@ class SmartGizmo(BasicStimuli):
                 clamppos = (clamp(self.pos[0],self.clamp_boxes[k][0],self.clamp_boxes[k][1]),
                             clamp(self.pos[1],self.clamp_boxes[k][2],self.clamp_boxes[k][3]),
                             clamp(self.pos[2],self.clamp_boxes[k][4],self.clamp_boxes[k][5]))
-                if (Point3(clamppos[0],clamppos[1],clamppos[2]) - Point3(self.pos[0],self.pos[1],self.pos[2])).length() > 1:
-                    print "Clamp!"
             else:
                 clamppos = self.pos
             rpyc.async(self.sat_gizmos[k].setPosHpr)(clamppos[0],clamppos[1],clamppos[2],self.hpr[0],self.hpr[1],self.hpr[2])
@@ -3935,6 +3935,7 @@ class Main(SceneBase):
         self.unfriendly_agent_icon = 'icons/unfriendly_agent_icon.png'  # icon to use for hostile agents (oriented)
         self.neutral_agent_icon = 'icons/neutral_agent_icon.png'        # icon to use for neutral agents (oriented)
         self.agent_icon_scale = 3.5                                     # size of the agent icons (in meters relative to ground map)
+        self.checkpoint_scale = 3.5                                     # size of the checkpoint icon
 
         # vehicular control parameters
         self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others)
@@ -4667,7 +4668,7 @@ class Main(SceneBase):
             self.clients[self.aerial_idx].toggle_satmap(True)
             # disable the viewport side task for the aerial subject and satmap side tasks for driving subject
             self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
-            self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map objects']))
+            self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map icons']))
             self.worldmap_task.active_agents = [self.vehicle_idx]
             # display instructions for everyone
             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions.")
@@ -5504,6 +5505,7 @@ class Main(SceneBase):
             display_engines=[self.clients[k]._engine for k in visible_to] + [self._engine],
             client_indices = visible_to + [2],
             gizmo_name='Checkpoint',
+            scale=self.checkpoint_scale,
             **kwargs)
 
 
