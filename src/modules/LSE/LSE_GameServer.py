@@ -233,6 +233,12 @@ def generate_positions(scenegraph,                  # the scene graph for which 
     for k in range(num_positions):
         # propose random locations until all conditions are satisfied...
         retry = 0
+        reachability_fails = 0
+        visibility_fails = 0
+        box_fails = 0
+        cone_fails = 0
+        away_fails = 0
+        nearby_fails = 0
         for retry in range(max_retries):
             # pick a random node
             node = random.choice(nodes)
@@ -277,6 +283,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                             accept = False
                             break
                     if not accept:
+                        nearby_fails += 1
                         continue
                 elif nearby_param == 'any':
                     accept = False
@@ -287,6 +294,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                             accept = True
                             break
                     if not accept:
+                        nearby_fails += 1
                         continue
                 else: 
                     print "Nearby_param must be 'any' or 'all'"
@@ -301,6 +309,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         accept = False
                         break
                 if not accept:
+                    away_fails += 1
                     continue
 
             # check if within conic constraint regions
@@ -312,6 +321,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                             accept = False
                             break
                     if not accept:
+                        cone_fails += 1
                         continue
                 elif within_cone_param == 'any':
                     accept = False
@@ -320,6 +330,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                             accept = True
                             break
                     if not accept:
+                        cone_fails += 1
                         continue
                 else:
                     print "Within_cone_param must be 'any' or 'all'"
@@ -332,6 +343,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         accept = False
                         break
                 if not accept:
+                    box_fails += 1
                     continue
 
             # check if the point is invisible from each point in the the given list
@@ -342,6 +354,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                         accept = False
                         break
                 if not accept:
+                    visibility_fails += 1
                     continue
 
             # check if the point is reachable from points in the given list
@@ -353,6 +366,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                             accept = False
                             break
                     if not accept:
+                        reachability_fails += 1
                         continue
                 elif reachability_param == 'any':
                     accept = False
@@ -361,6 +375,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                             accept = True
                             break
                     if not accept:
+                        reachability_fails += 1
                         continue
                 else:
                     print "Reachability parameter must be 'any' or 'all'"
@@ -397,6 +412,7 @@ def generate_path(startpos,                    # the starting position of the pa
                   objectnames=None,                             # the names of objects to whose surfaces the points should be constrained
                   min_distance_between_positions=75,            # the minimum direct distance between any two points on the path (starting point is ignored from 2nd pos onward if too close to endpoint)
                   max_distance_between_successive_positions=150,# the maximum direct distance between two successive points on the path
+                  require_reachability=True,                    # only accept paths with reachability between successive points
                   no_successive_line_of_sight=False,            # whether successive points should have no line-of-sight to each other
                   within_box=None,                              # optional overall box constraint for entire path ((minx,maxx),(miny,maxy),(minz,maxz))
                   max_retries=10000,                            # maximum number of attempts at generating a feasible path
@@ -414,7 +430,7 @@ def generate_path(startpos,                    # the starting position of the pa
                 navmesh=navmesh,
                 physics=physics,
                 objectnames=objectnames,
-                reachable_from=cur_path[k-1],
+                reachable_from=cur_path[k-1] if require_reachability else None,
                 invisible_from=cur_path[k-1] if no_successive_line_of_sight else None,
                 away_from=cur_path[1:] if (startpos-endpos).length() < min_distance_between_positions and k>1 else cur_path, # we exclude the startpos from the min-distance constraints if it's too close to the end pos (except for the first path point, where we always respect it)
                 nearby_to=[cur_path[k-1],endpos],
@@ -2967,6 +2983,7 @@ class SmartGizmo(BasicStimuli):
                  opacity=0.95,           # opacity of the icon
                  oncamera=True,          # whether the gizmo is visible on the 3d camera (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
                  onsatmap=True,          # whether the gizmo is visible on the satellite map (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
+                 onexperimenter=True,    # whether the gizmo is visible on the experimenter's screen
                  throughwalls=True,      # whether the gizmo is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
                  billboard=True,         # whether to enable a billboard effect (always points to the respective camera)
                  gizmo_name=''           # name of the gizmo for marker purposes (no markers if empty)
@@ -2991,6 +3008,7 @@ class SmartGizmo(BasicStimuli):
         self.opacity = opacity
         self.oncamera = oncamera
         self.onsatmap = onsatmap
+        self.onexperimenter = onexperimenter
         self.throughwalls = throughwalls
         self.gizmo_name = gizmo_name
         self.identifier = next(_gizmo_id_generator)         # unique identifier (constant)
@@ -3005,7 +3023,7 @@ class SmartGizmo(BasicStimuli):
 
         # generate it on every output
         for k in range(len(self.display_scenegraphs)):
-            # add a version that's at best visible on 3d cameras (but never on satmaps)
+            # add a version that's only visible on 3d cameras (but never on satmaps)
             self.cam_gizmos.append(rpyc.async(self.display_funcs[k][0])(
                 position = self.pos,
                 hpr = self.hpr,
@@ -3014,7 +3032,7 @@ class SmartGizmo(BasicStimuli):
                 parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
                 color=(1,1,1,self.opacity),
-                camera_mask = ((3,4) if not self.oncamera[k] else ()) + (0,1),
+                camera_mask = ((3,4) if not self.oncamera[k] else ()) + (0,1) + (() if not self.onexperimenter else (2,)),
                 billboard=billboard,
                 throughwalls=self.throughwalls[k]))
             # add a version that's at best visible on satmaps (but never on 3d cameras)
@@ -3224,6 +3242,11 @@ class SceneBase(LatentModule):
             for k in range(len(startpos_nodes)):
                 if not k == retain_idx:
                     rpyc.async(startpos_nodes[k].removeNode)()
+
+        # get the position of the waypoint at the starting location
+        waypoint = self.city.find("**/Waypoint*-lib*")
+        self.waypoint_pos = waypoint.getPos(self.city)
+        rpyc.async(waypoint.removeNode)()
 
     @livecoding
     def destroy_static_world(self):
@@ -4029,7 +4052,7 @@ class Main(SceneBase):
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = (10,18)                         # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
-        self.checkpoint_max_distance = 150                      # maximum direct distance between any two successive checkpoints on a tour
+        self.checkpoint_max_distance = 200                      # maximum direct distance between any two successive checkpoints on a tour
         self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
         self.double_report_cutoff = 5                           # if an agent is being reported within shorter succession than this many seconds it counts as a double report
         self.potentially_visible_cutoff = 3                     # if an agent was potentially visible for longer than this, and has not been reported before it went away
@@ -4342,7 +4365,7 @@ class Main(SceneBase):
                 display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
                 client_indices = visible_to + [2],
                 image=[(self.own_agent_icon if j==k else self.friendly_agent_icon) for j in visible_to] + [self.friendly_agent_icon],
-                scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,billboard=False,throughwalls=True))
+                scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=False,billboard=False,throughwalls=True))
 
         # set up a process that broadcasts the local (dynamic) gamestate to the clients (entity positions, etc.)
         taskMgr.add(self.broadcast_gamestate,"BroadcastGamestate")
@@ -4444,7 +4467,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=False)
+            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.worldmap_task.active_agents = [self.vehicle_idx]
@@ -4460,13 +4483,14 @@ class Main(SceneBase):
             # generate new checkpoint sequence
             if not (self.use_manual_checkpoints and self.checkpoints):
                 self.checkpoints = generate_path(
-                    startpos=self.truck_pos,
-                    endpos=self.truck_pos,
+                    startpos=self.waypoint_pos,
+                    endpos=self.waypoint_pos,
                     num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
                     scenegraph=self.city,
                     navmesh=self.navcrowd.nav,
                     physics=self.physics,
                     objectnames=('Concrete',),
+                    require_reachability=False,
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # wait until the checkpoint has been reached
@@ -4501,7 +4525,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=False)
+            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
 
             # determine the navigation zone around the relevant subject
             v = self.agents[self.panning_idx]
@@ -4608,13 +4632,14 @@ class Main(SceneBase):
             # generate new checkpoint sequence
             if not (self.use_manual_checkpoints and self.checkpoints):
                 self.checkpoints = generate_path(
-                    startpos=self.truck_pos,
-                    endpos=self.truck_pos,
+                    startpos=self.waypoint_pos,
+                    endpos=self.waypoint_pos,
                     num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
                     scenegraph=self.city,
                     navmesh=self.navcrowd.nav,
                     physics=self.physics,
                     objectnames=('Concrete',),
+                    require_reachability=False,
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # show the instructions
@@ -4678,13 +4703,14 @@ class Main(SceneBase):
             # generate new checkpoint sequence
             if not (self.use_manual_checkpoints and self.checkpoints):
                 self.checkpoints = generate_path(
-                    startpos=self.truck_pos,
-                    endpos=self.truck_pos,
+                    startpos=self.waypoint_pos,
+                    endpos=self.waypoint_pos,
                     num_positions=int(random.uniform(self.checkpoint_count[0],self.checkpoint_count[1])),
                     scenegraph=self.city,
                     navmesh=self.navcrowd.nav,
                     physics=self.physics,
                     objectnames=('Concrete',),
+                    require_reachability=False,
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # set up periodic score update
