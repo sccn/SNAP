@@ -419,6 +419,7 @@ class MainApp(ShowBase):
         return Task.cont
 
     def terminate(self):
+        exit()
         global is_running
         is_running = False
 

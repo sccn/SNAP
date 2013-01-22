@@ -3914,9 +3914,9 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 3                                    # permutation number; used to determine the mission mix
+        self.permutation = 1                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
-        self.num_missions_per_block = (5,10)                    # number of missions per block [minimum,maximum]
+        self.num_missions_per_block = (3,5)                    # number of missions per block [minimum,maximum]
 
         # mission mix
         self.lull_mission_types = ['lull-deep']                 # possible lull missions (appear between any two blocks)
