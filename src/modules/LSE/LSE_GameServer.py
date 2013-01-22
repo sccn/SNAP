@@ -7,6 +7,14 @@
 #  instances of SNAP running the LSE_GameClient module.
 # ====================================================
 
+# Camera bitmasks (can be used to hide objects from certain types of cameras):
+# - 0: satmap camera for the first player
+# - 1: satmap camera for the second player
+# - 2: experimenter's camera
+# - 3: viewport camera of the first player
+# - 4: viewport camera of the second player
+
+
 # Panda3d
 from direct.task.TaskManagerGlobal import taskMgr
 from direct.task import Task
@@ -38,7 +46,6 @@ max_duration = 500000       # the maximum feasible duration (practically infinit
 max_agents = 20             # maximum number of simultaneous AI-controlled agents
 screen_shuffle = [1,2,3]    # the order of the screen indices from left to right (for handedness switch or random permutation)
 screen_aspect = 1200/700.0  # screen aspect ratio that this should run on (note: this is the *client* aspect ratio)
-
 
 # ========================
 # === HELPER FUNCTIONS ===
@@ -85,7 +92,7 @@ def smoothstep(x,edge0=0.0,edge1=1.0):
 
 def rect(tl,br):
     """ Turns a pair of top/left, bottom/right coordinates into a rect (which is left,right,top,bottom). """
-    return (tl[0],br[0],tl[1],br[1])
+    return tl[0],br[0],tl[1],br[1]
 
 @livecoding
 def line_of_sight(physics,              # bullet physics world 
@@ -397,7 +404,6 @@ def generate_path(startpos,                    # the starting position of the pa
                   z_offset=0.75,                                # offset of the path nodes in z axis
                   ):
     """ Generate a path through a map between two endpoints with pseudo-random intermediate points. """
-    retry = 0
     for retry in range(max_retries):
         cur_path = [startpos]
         # append nodes...
@@ -456,7 +462,7 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
     def result(x,y):
         """ Package up the result of this function. """
         if x and y:
-            return (x,y)
+            return x,y
         elif x:
             return x
         else:
@@ -1494,6 +1500,7 @@ class IndicatorLightTask(LatentModule):
             self.scorecounter.score_event(self.miss_penalty,nosound=self.no_score_sounds)
             rpyc.async(self.stimpresenter.sound)(self.snd_miss,**self.snd_params)
 
+    #noinspection PyUnusedLocal
     @livecoding
     def on_false_detection(self,evtype,t):
         """ Subject spuriously presses the response button. """
@@ -1501,6 +1508,7 @@ class IndicatorLightTask(LatentModule):
         self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds)
         rpyc.async(self.stimpresenter.sound)(self.snd_false,**self.snd_params)
 
+    #noinspection PyUnusedLocal
     @livecoding
     def on_correct(self,evtype,t):
         """ Subject presses the correct response button in time. """
@@ -2018,7 +2026,7 @@ class SatmapTask(BasicStimuli):
 
             # generate the picture instance
             icon = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo)(
-                image=filename, scale=self.item_scale, position=pos,color=self.item_colors[color], parent=self.scenegraph)
+                image=filename, scale=self.item_scale, position=pos,color=self.item_colors[color], parent=self.scenegraph, camera_mask=(3,4))
             # issue stimulus presentation marker
             self.marker('Stimulus/Visual/Shape, Experiment Control/Task/Satellite Map/Add Icon/{identifier:%i|label:%s|color:%s|direction:%s|x:%f|y:%f|phi:%f|r:%f}, Participant/ID/%i'% (question.identifier, question.label, color, direction, pos[0], pos[1], angle, radius, self.client_idx))
 
@@ -2213,7 +2221,7 @@ class ProbedObjectsTask(LatentModule):
                  # adding and pruning entities
                  placement_geometry = 'Pavement',           # this is the target geometry for placing objects
                  add_within_fov = 45,                       # add items within the given field of view (but behind buildings, i.e., around corners)
-                 num_potentially_visible = 10,              # the initial number of simultaneously potentially visible objects to maintain (may be varied over time)
+                 num_potentially_visible = 15,              # the initial number of simultaneously potentially visible objects to maintain (may be varied over time)
                  max_visible = 10,                          # don't add more objects if there are currently this many objects in view
                  add_radius_max = 75,                       # add new potentially visible objects within this radius, in meters (note: should also use cone segment constraint!)
                  add_radius_min = 15,                       # add new potentially visible objects outside this radius, in meters
@@ -2348,7 +2356,7 @@ class ProbedObjectsTask(LatentModule):
             for i in range(len(self.agents)):
                 agent_positions.append(self.agents[i].getPos(self.scenegraph))
             # also get their view cones
-            agent_viewdirs = [None]*len(self.active_agents)
+            agent_viewdirs = []
             for i in range(len(self.agents)):
                 tmpdir = -self.agents[i].getMat(self.scenegraph).getRow(1)
                 agent_viewdirs.append(Vec3(tmpdir.getX(),tmpdir.getY(),tmpdir.getZ()))
@@ -2378,7 +2386,7 @@ class ProbedObjectsTask(LatentModule):
                 within_cone_param = 'any',
                 away_radius=self.add_radius_min,
                 snap_to_navmesh=False,
-                max_retries=20
+                max_retries=10
             )
             if len(pos) == 0:
                 break # in some cases the conditions can be unsatisfiable; in this case we don't add
@@ -2551,16 +2559,19 @@ class ProbedObjectsTask(LatentModule):
         """ Prune old / out-of-view items. """
         for e in reversed(range(len(self.entities))):
             # check if it's out of range and outside the field of view for both agents...
+            in_range = False
             for a in range(len(self.agents)):
                 pos = self.entities[e].pos
                 direction = pos - agent_positions[a]
                 if direction.length() > self.prune_radius:
-                    if abs(agent_viewdirs[a].angleDeg(direction)) > self.candidate_viewcone/2:
-                        # delete it
-                        for remover in self.entities[e].removers:
-                            remover()
-                        self.marker('Experiment Control/Task/Sidewalk Items/Remove/{identifier:%i|label:%s|color:%s|x:%f|y:%f|z:%f}' % (self.entities[e].identifier,self.entities[e].label,self.entities[e].color,pos[0],pos[1],pos[2]))
-                        del self.entities[e]
+                    if abs(agent_viewdirs[a].angleDeg(direction)) < self.candidate_viewcone/2:
+                        in_range = True
+            if not in_range:
+                # delete it
+                for remover in self.entities[e].removers:
+                    remover()
+                self.marker('Experiment Control/Task/Sidewalk Items/Remove/{identifier:%i|label:%s|color:%s|x:%f|y:%f|z:%f}' % (self.entities[e].identifier,self.entities[e].label,self.entities[e].color,pos[0],pos[1],pos[2]))
+                del self.entities[e]
 
     def set_focused(self,idx,tf):
         """ Set the focused state of this task for a given agent/client. """
@@ -2650,8 +2661,8 @@ class WanderingAgent(BasicStimuli):
             inst = rpyc.enable_async_methods(g.attachNewNode("WanderingAgent"))
             inst.setPos(self.pos.getX(),self.pos.getY(),self.pos.getZ())
             # also hide the agent from all the satmap cameras
-            #for c in [1,2]:
-            #    inst.hide(engines[i].pandac.BitMask32.bit(c))
+            for c in [0,1]:
+                inst.hide(engines[i].pandac.BitMask32.bit(c))
             self.instances.append(inst)
             m.instanceTo(inst)
             self.pos_functions.append(inst.setPos)
@@ -2795,8 +2806,8 @@ class InvadingAgent(BasicStimuli):
             inst = rpyc.enable_async_methods(g.attachNewNode("InvadingAgent"))
             inst.setPos(self.pos.getX(),self.pos.getY(),self.pos.getZ())
             # also hide the agent from the satmap cameras (using the appropriate masks)
-            #for c in [1,2]:
-            #    inst.hide(engines[i].pandac.BitMask32.bit(c))
+            for c in [0,1]:
+                inst.hide(engines[i].pandac.BitMask32.bit(c))
             self.instances.append(inst)
             m.instanceTo(inst)
             self.pos_functions.append(inst.setPos)
@@ -2947,70 +2958,149 @@ class InvadingAgent(BasicStimuli):
                 return meshloc_detour
 
 
-class Checkpoint(BasicStimuli):
+_gizmo_id_generator = itertools.count(1)   # a generator to assign experiment-wide unique id's to agents (both wanderers, invaders, etc.)
+
+class SmartGizmo(BasicStimuli):
     """
-    Represents a movable checkpoint on a map and in 3d views.
+    Represents a movable gizmo that renders/updates itself on multiple scene graphs (usually viewports of the subjects and the experimenter),
+    and which can optionally be masked from pre-defined camera types (satellite map, 3d viewport) and endowed with different rendering effects.
+    Supports position clamping at some rectangle (and maybe later at 3d viewport boundaries).
     """
     def __init__(self,
                  # rendering output
                  display_scenegraphs,    # the scene graphs to which the objects should be added
-                 display_funcs,          # the functions to display the instances (signature-compatible with create_worldspace_gizmo); a list of pairs (first one is the constructor, second one the destructor)
+                 display_funcs,          # the functions to display/delete the instances as list of pairs (first one is the constructor, second one the destructor), signature-compatible with (create_worldspace_gizmo,destroy_worldspace_gizmo)
                  display_engines,        # engine instances to load the models...
+                 client_indices,         # the client indices corresponding to the respective list entries in display_*** (referred to in the clip-box / clamp-box updates)
                  # display properties
-                 icon = 'icons/star.png',# the icon to use for checkpoints (same on satmap and in 3d worlds)
-                 scale = 2,              # scale of the checkpoint icon
+                 pos=(0,0,0),            # initial position of the gizmo
+                 hpr=(0,0,0),            # initial heading/pitch/roll angles of the gizmo
+                 scale = 2,              # scale of the icon
+                 image = 'icons/star.png',# the icon to use (can also be a list of strings to assign a different icon per scene graph)
                  opacity=0.95,           # opacity of the icon
-                 oncamera=True,          # whether the checkpoint is visible on the 3d camera (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
-                 throughwalls=True,      # whether the checkpoint is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
-                 pos=(0,0,0),           # initial position of the checkpoint
+                 oncamera=True,          # whether the gizmo is visible on the 3d camera (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
+                 onsatmap=True,          # whether the gizmo is visible on the satellite map (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
+                 throughwalls=True,      # whether the gizmo is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
+                 billboard=True,         # whether to enable a billboard effect (always points to the respective camera)
+                 gizmo_name=''           # name of the gizmo for marker purposes (no markers if empty)
                  ):
         BasicStimuli.__init__(self)
 
         self.display_scenegraphs = display_scenegraphs
         self.display_funcs = display_funcs
         self.display_engines = display_engines
-        self.icon = icon
-        self.scale = scale
-        self.opacity = opacity
+        self.client_indices = client_indices
+
+        if type(image) is not list:
+            image = [image]*len(self.display_scenegraphs)
         if type(oncamera) is not list:
             oncamera = [oncamera]*len(self.display_scenegraphs)
+        if type(onsatmap) is not list:
+            onsatmap = [onsatmap]*len(self.display_scenegraphs)
         if type(throughwalls) is not list:
             throughwalls = [throughwalls]*len(self.display_scenegraphs)
+        self.image = image
+        self.scale = scale
+        self.opacity = opacity
         self.oncamera = oncamera
+        self.onsatmap = onsatmap
         self.throughwalls = throughwalls
+        self.gizmo_name = gizmo_name
+        self.identifier = next(_gizmo_id_generator)         # unique identifier (constant)
 
         # run-time variables
-        self.gizmos = []    # holds a list of scene nodes, one per display scene graph
+        self.cam_gizmos = []        # holds a list of scene nodes visible on the camera, one per display scene graph
+        self.sat_gizmos = []        # holds a list of scene nodes visible on the satmap, one per display scene graph
         self.pos = pos
+        self.hpr = hpr
+        self.clip_boxes = [None]*len(self.display_scenegraphs)
+        self.clamp_boxes = [None]*len(self.display_scenegraphs)
 
         # generate it on every output
         for k in range(len(self.display_scenegraphs)):
-            self.gizmos.append(rpyc.async(self.display_funcs[k][0])(
+            # add a version that's at best visible on 3d cameras (but never on satmaps)
+            self.cam_gizmos.append(rpyc.async(self.display_funcs[k][0])(
                 position = self.pos,
+                hpr = self.hpr,
                 scale=self.scale,
-                image=self.icon,
+                image=self.image[k],
                 parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
                 color=(1,1,1,self.opacity),
-                oncamera=self.oncamera[k],
+                camera_mask = ((3,4) if not self.oncamera[k] else ()) + (0,1),
+                billboard=billboard,
                 throughwalls=self.throughwalls[k]))
-        self.marker('Experiment Control/Task/Checkpoint/Create/[%f|%f|%f]' % (self.pos[0],self.pos[1],self.pos[2]))
+            # add a version that's at best visible on satmaps (but never on 3d cameras)
+            self.sat_gizmos.append(rpyc.async(self.display_funcs[k][0])(
+                position = self.pos,
+                hpr = self.hpr,
+                scale=self.scale,
+                image=self.image[k],
+                parent=self.display_scenegraphs[k],
+                engine=self.display_engines[k],
+                color=(1,1,1,self.opacity),
+                camera_mask = ((0,1) if not self.onsatmap[k] else ()) + (3,4),
+                billboard=billboard,
+                throughwalls=True))
+        if self.gizmo_name:
+            self.marker('Experiment Control/Task/%s/Create/{identifier:%i|x:%f|y:%f|z:%f}' % (self.gizmo_name,self.identifier,self.pos[0],self.pos[1],self.pos[2]))
 
     @livecoding
-    def move_to(self,pos):
+    def update_satmap_clamp_box(self,cl_idx,box):
+        """ Update the satmap clamp box (if any) that shall constrain the position of this checkpoint for a given client index. """
+        self.clamp_boxes[self.client_indices.index(cl_idx)] = box
+        self.update()
+
+    @livecoding
+    def update_satmap_clip_box(self,cl_idx,box):
+        """ Update the satmap clip box (if any) outside of which the item is going to be invisible. """
+        self.clip_boxes[self.client_indices.index(cl_idx)] = box
+        self.update()
+
+    @livecoding
+    def move_to(self,pos,hpr=None):
         """ Move a checkpoint to a new location. """
         self.pos = pos
-        for g in self.gizmos:
-            rpyc.async(g.setPos)(self.pos[0],self.pos[1],self.pos[2])
-        self.marker('Experiment Control/Task/Checkpoint/Move/[%f|%f|%f]' % (self.pos[0],self.pos[1],self.pos[2]))
+        if hpr:
+            self.hpr = hpr
+        self.update()
+        if self.gizmo_name:
+            self.marker('Experiment Control/Task/%s/Move/{identifier:%i|x:%f|y:%f|z:%f}' % (self.gizmo_name,self.identifier,self.pos[0],self.pos[1],self.pos[2]))
 
+    @livecoding
+    def update(self):
+        """ Update the location of the checkpoint. """
+        for g in self.cam_gizmos:
+            rpyc.async(g.setPos)(self.pos[0],self.pos[1],self.pos[2])
+        for k in range(len(self.sat_gizmos)):
+            # implement clipping
+            if self.clip_boxes[k]:
+                if self.pos[0] < self.clip_boxes[k][0] or self.pos[0] > self.clip_boxes[k][1] or self.pos[1] < self.clip_boxes[k][2] or self.pos[1] > self.clip_boxes[k][3] or self.pos[2] < self.clip_boxes[k][4] or self.pos[2] > self.clip_boxes[k][5]:
+                    rpyc.async(self.sat_gizmos[k].setColor)(1,1,1,0)
+                else:
+                    rpyc.async(self.sat_gizmos[k].setColor)(1,1,1,self.opacity)
+            # implement clamping
+            if self.clamp_boxes[k]:
+                clamppos = (clamp(self.pos[0],self.clamp_boxes[k][0],self.clamp_boxes[k][1]),
+                            clamp(self.pos[1],self.clamp_boxes[k][2],self.clamp_boxes[k][3]),
+                            clamp(self.pos[2],self.clamp_boxes[k][4],self.clamp_boxes[k][5]))
+                if (Point3(clamppos[0],clamppos[1],clamppos[2]) - Point3(self.pos[0],self.pos[1],self.pos[2])).length() > 1:
+                    print "Clamp!"
+            else:
+                clamppos = self.pos
+            rpyc.async(self.sat_gizmos[k].setPosHpr)(clamppos[0],clamppos[1],clamppos[2],self.hpr[0],self.hpr[1],self.hpr[2])
+
+    @livecoding
     def destroy(self):
         """ Remove a checkpoint from the world. """
-        for g in self.gizmos:
+        for g in self.cam_gizmos:
             g.destroy()
-        self.gizmos = []
-        self.marker('Experiment Control/Task/Checkpoint/Remove')
-
+        for g in self.sat_gizmos:
+            g.destroy()
+        self.cam_gizmos = []
+        self.sat_gizmos = []
+        if self.gizmo_name:
+            self.marker('Experiment Control/Task/%s/Remove/{identifier:%i}' % (self.gizmo_name,self.identifier))
 
 
 # =========================================
@@ -3205,6 +3295,7 @@ class ClientGame(SceneBase):
         # client GUI settings
         self.viewport_corner_pos = grid(2,(1,1),(2,5),'topleft')  # position of the 3d viewport upper left corner (aspect2d coordinates)
         self.agent_viewport_rect = rect(grid(2,(1,1),(2,5),'topleft',sys='window'),grid(2,(1,1),(3,5),'bottomright',sys='window')) # viewport rectangle that displays the own agent's camera (in normalized window coordinates)
+        self.icon_clamp_distance = 2                        # when clamping satellite map icons at the border, this is the distance from the border in meters on ground
 
         # placement of instruction text boxes
         self.viewport_instructions_pos = grid(2,(1,1),(4,5),'topleft') # position of the instruction message box (upper left corner)
@@ -3259,13 +3350,6 @@ class ClientGame(SceneBase):
         # ambience sound setup
         self.ambience_sound = 'sounds\\nyc_amb2.wav'        # sound file of the background ambience loop
         self.ambience_volume = 0.1                          # normalized volume of the ambience loop
-
-        # satmap icons
-        self.own_agent_icon = 'icons/own_agent_icon.png'                # icon to use for the own agent (oriented) 
-        self.friendly_agent_icon = 'icons/friendly_agent_icon.png'      # icon to use for friendly agents (oriented)
-        self.unfriendly_agent_icon = 'icons/unfriendly_agent_icon.png'  # icon to use for hostile agents (oriented)
-        self.neutral_agent_icon = 'icons/neutral_agent_icon.png'        # icon to use for neutral agents (oriented)
-        self.agent_icon_scale = 3.5                                     # size of the agent icons (in meters relative to ground map)
 
         # overall button parameters
         self.button_framesize = (-1.5,1.5,-0.65*1.5+0.25,0.65*1.5+0.25) # size of the buttons (xmin,xmax,ymin,ymax)
@@ -3621,7 +3705,7 @@ class ClientGame(SceneBase):
     # ==============================
 
     @livecoding
-    def init_satmap_setup(self,agent_widgets=(0,1)):
+    def init_satmap_setup(self):
         """
         Prepare the satellite map setup, i.e., camera, lens, special gizmos, etc., without showing the map just yet.
         """
@@ -3646,22 +3730,6 @@ class ClientGame(SceneBase):
             # (note: generally the scene graph on the client machine has
             for a in range(2):
                 self.agents[a].hide(self._engine.pandac.BitMask32.bit(c))
-
-        # create satmap widgets for each desired agent
-        self.agent_gizmos = [None,None]
-        self.update_agent_gizmos = [None,None]
-        for w in agent_widgets:
-            pos = self.master.agents[w].getPos(self.master.city)
-            hpr = self.master.agents[w].getHpr(self.master.city)
-            self.agent_gizmos[w] = rpyc.enable_async_methods(self._engine.direct.gui.OnscreenImage.OnscreenImage(image = self.own_agent_icon if w==self.num else self.friendly_agent_icon,
-                pos=(pos.getX(),pos.getY(),pos.getZ()+100), hpr=(hpr.getX()+180,-90,0),
-                scale=self.agent_icon_scale, parent=self.city))
-            self.agent_gizmos[w].setTransparency(TransparencyAttrib.MAlpha)
-            self.agent_gizmos[w].setTwoSided(True)
-            # ... make sure that they are hidden from the other cameras
-            for h in [2,3,4]:
-                self.agent_gizmos[w].hide(self._engine.pandac.BitMask32.bit(h))
-            self.update_agent_gizmos[w] = self.agent_gizmos[w].setPosHpr
 
         # start the periodic update task
         taskMgr.doMethodLater(self.satmap_update_interval,self.update_satmap,'Update Satmap')
@@ -3689,13 +3757,22 @@ class ClientGame(SceneBase):
             agent_pos = self.master.agents[self.num].getPos(self.master.city)
             # update the postion of the camera itself
             self.satmap_camera_setpos(agent_pos.getX(),agent_pos.getY(),agent_pos.getZ()+self.satellite_height)
-            # update the position of the widgets visible in it...
-            for w in [0,1]:
-                if self.update_agent_gizmos[w] is not None:
-                    pos = self.master.agents[w].getPos(self.master.city)
-                    hpr = self.master.agents[w].getHpr(self.master.city)
-                    #noinspection PyCallingNonCallable
-                    self.update_agent_gizmos[w](pos.getX(),pos.getY(),pos.getZ()+100,hpr.getX()+180,-90,0)
+            # calc updated the gizmo clamp box (used to clamp widgets at the borders)
+            centerpos = (agent_pos.getX(),agent_pos.getY(),agent_pos.getZ())
+            clampbox = (centerpos[0]-(self.satmap_coverage[1]/2-self.icon_clamp_distance),centerpos[0]+(self.satmap_coverage[1]/2-self.icon_clamp_distance),
+                        centerpos[1]-(self.satmap_coverage[0]/2-self.icon_clamp_distance),(centerpos[1]+self.satmap_coverage[0]/2-self.icon_clamp_distance),
+                        centerpos[2]-100,centerpos[2]+100)
+            # update the checkpoint clamping
+            if self.master.checkpoint:
+                self.master.checkpoint.update_satmap_clamp_box(self.num,clampbox)
+            # update the position and clamping of the agent gizmos
+            for k in range(len(self.master.agents)):
+                gizmo = self.master.agent_gizmos[k]
+                gizmo.update_satmap_clamp_box(self.num,clampbox)
+                pos = self.master.agents[k].getPos(self.master.city)
+                hpr = self.master.agents[k].getParent().getHpr(self.master.city)
+                gizmo.move_to((pos.getX(),pos.getY(),pos.getZ()+100),(0,-90,180-hpr.getX()))
+            # update the satmap task
             self.satmap_task.update(self.master.agents[self.num].getPos(self.master.city))
         return task.again
 
@@ -3831,25 +3908,16 @@ class Main(SceneBase):
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
+        self.world_types = ['CityMedium']                        # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
+        self.terrain_types = ['LSE_desertplains_flat']           # the possible terrain types
+        self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
+        self.truck_name = "Truck"                                # name of the truck entity in the world: this is used to position/find the truck location
+
         #self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
                                                                  # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
         #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
         #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
         #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
-
-        #self.world_types = ['CityAlmostOrig_Coordsystesting']               # the possible environments; there must be a file 'media/<name>.bam' that
-        #                                                        # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
-        #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
-        #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
-        #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
-
-        self.world_types = ['CityMedium']                        # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
-        self.terrain_types = ['LSE_desertplains_flat']         # the possible terrain types
-        self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
-        self.truck_name = "Truck"
-
-        #self.world_types = ['CityLarge']                        # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
-        #self.terrain_types = ['LSE_desertplains_flat']         # the possible terrain types
 
         # enabled attention set
         self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
@@ -3869,6 +3937,13 @@ class Main(SceneBase):
         self.score_pos = (1.5,0)                                # position of the score presenter
         self.checkpoint_height = 2                              # in meters above the ground
         self.camera_fov = 55                                    # in degrees: note that going too high here is risking motion sickness for the players
+
+        # satmap icons
+        self.own_agent_icon = 'icons/own_agent_icon.png'                # icon to use for the own agent (oriented)
+        self.friendly_agent_icon = 'icons/friendly_agent_icon.png'      # icon to use for friendly agents (oriented)
+        self.unfriendly_agent_icon = 'icons/unfriendly_agent_icon.png'  # icon to use for hostile agents (oriented)
+        self.neutral_agent_icon = 'icons/neutral_agent_icon.png'        # icon to use for neutral agents (oriented)
+        self.agent_icon_scale = 3.5                                     # size of the agent icons (in meters relative to ground map)
 
         # vehicular control parameters
         self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others)
@@ -4017,9 +4092,10 @@ class Main(SceneBase):
         self.scorelog = []                                      # the score log file (shared between multiple instances of ScoreCounter)
         self.clients = []                                       # instances of ClientGame; wraps and proxies the remote client session
         self.agents = []                                        # player agents in the scene graph (one per client)
+        self.agent_gizmos = []                                  # list of satellite map gizmos for the agents
         self.camera = None                                      # the experimenter's flyover camera
         self.vehicles = []                                      # the agents' vehicle models (for steering and other control purposes)        
-        self.checkpoints = []                                   # a list of checkpoints, in [x,y] world coordinates
+        self.checkpoints = []                                   # a list of checkpoints to iterate over (during the mission)
         self.agent_control = ['vehicle','vehicle']              # the current control scheme (either 'vehicle' or 'aerial')
         self.vehicle_idx = None                                 # index of the vehicle client (0 if both are vehicle-bound)
         self.aerial_idx = None                                  # index of the aerial client (0 if both are air-bound)
@@ -4261,13 +4337,23 @@ class Main(SceneBase):
         # create the local and remote player agents (these are abstract scene nodes)
         for k in range(len(self.clients)):
             self.agents.append(self.find_agent(self.agent_names[k]))
+
             for cl in self.clients:
                 cl.agents.append(rpyc.enable_async_methods(cl.find_agent(self.agent_names[k])))
                 cl.update_agents_poshpr.append(cl.agents[k].setPosHpr)                    
 
+            # also create the (satmap) gizmo objects for the agents
+            visible_to = [0,1]
+            self.agent_gizmos.append(SmartGizmo(
+                display_scenegraphs=[self.clients[k].city for k in visible_to] + [self.city],
+                display_funcs=[(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
+                display_engines=[self.clients[k]._engine for k in visible_to] + [self._engine],
+                client_indices = visible_to + [2],
+                image=[(self.own_agent_icon if i==k else self.friendly_agent_icon) for i in visible_to] + [self.friendly_agent_icon],
+                scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,billboard=False,throughwalls=True))
+
         # set up a process that broadcasts the local (dynamic) gamestate to the clients (entity positions, etc.)
         taskMgr.add(self.broadcast_gamestate,"BroadcastGamestate")
-
 
     @livecoding
     def init_subtasks(self):
@@ -4377,7 +4463,7 @@ class Main(SceneBase):
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
             # add checkpoint gizmo
-            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx],oncamera=True,throughwalls=True )
+            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx],oncamera=True,onsatmap=True,throughwalls=True)
             # generate new checkpoint sequence
             if not (self.use_manual_checkpoints and self.checkpoints):
                 self.checkpoints = generate_path(
@@ -4387,7 +4473,7 @@ class Main(SceneBase):
                     scenegraph=self.city,
                     navmesh=self.navcrowd.nav,
                     physics=self.physics,
-                    objectnames=('Concrete'),
+                    objectnames=('Concrete',),
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # wait until the checkpoint has been reached
@@ -4408,6 +4494,7 @@ class Main(SceneBase):
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set))
             if self.checkpoint:
                 self.checkpoint.destroy()
+                self.checkpoint = None
             taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
@@ -4534,7 +4621,7 @@ class Main(SceneBase):
                     scenegraph=self.city,
                     navmesh=self.navcrowd.nav,
                     physics=self.physics,
-                    objectnames=('Concrete'),
+                    objectnames=('Concrete',),
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # show the instructions
@@ -4543,7 +4630,7 @@ class Main(SceneBase):
             # set up periodic score update
             taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
             # show gizmo on all clients
-            self.checkpoint = self.create_checkpoint(visible_to=[0,1],oncamera=True,throughwalls=True)
+            self.checkpoint = self.create_checkpoint(visible_to=[0,1],oncamera=True,onsatmap=True,throughwalls=True)
             # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the checkpoint
@@ -4570,6 +4657,7 @@ class Main(SceneBase):
             # cleanup
             if self.checkpoint:
                 self.checkpoint.destroy()
+                self.checkpoint = None
             taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
@@ -4603,7 +4691,7 @@ class Main(SceneBase):
                     scenegraph=self.city,
                     navmesh=self.navcrowd.nav,
                     physics=self.physics,
-                    objectnames=('Concrete'),
+                    objectnames=('Concrete',),
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # set up periodic score update
@@ -4618,7 +4706,7 @@ class Main(SceneBase):
                 self.rise_force_offset = self.rise_force_offset_max * fraction
                 self.sleep(0.05)                                     
             # add checkpoint gizmos for the players (but the vehicle player does not get to see them through walls)
-            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx,self.aerial_idx],oncamera=True,throughwalls=[True,False,True])
+            self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx,self.aerial_idx],oncamera=True,onsatmap=True,throughwalls=[False,True,True])
             # for each checkpoint...
             for cp in range(len(self.checkpoints)):
                 # move the checkpoint
@@ -4653,6 +4741,7 @@ class Main(SceneBase):
             self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set))
             if self.checkpoint:
                 self.checkpoint.destroy()
+                self.checkpoint = None
             self.destroy_wanderers()
             taskMgr.remove('UpdateScorePeriodic')
 
@@ -4770,7 +4859,7 @@ class Main(SceneBase):
         for cl in self.clients:
             cl.toggle_satmap(True)
         self.reset_control_scheme(['vehicle','vehicle'])
-        self.worldmap_task.active_agents = [0,1]
+        self.worldmap_task.active_agents = []
         self.broadcast_message('starting now, you may roam freely.')
         self.sleep(10000)
 
@@ -4895,6 +4984,9 @@ class Main(SceneBase):
         dt = now - self.physics_lasttime
         self.physics_lasttime = now
 
+        hpr = self.agents[0].getParent().getHpr(self.city)
+        print '[' + str(hpr[0]) + ', ' + str(hpr[1]) + ', ' + str(hpr[2]) + ']'
+
         # get the controller inputs
         for client in [0,1]:
             x = self.clients[client].axis_x
@@ -4972,6 +5064,7 @@ class Main(SceneBase):
             left_planar.setZ(0)
             left_planar *= 1.0 / left_planar.length()
             correction = left.cross(left_planar) * self.axis_stabilization
+            #noinspection PyUnresolvedReferences
             self.vehicles[aerial_idx].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
 
         self.physics.doPhysics(dt, self.physics_solver_max_substeps, self.physics_solver_stepsize)
@@ -4992,9 +5085,9 @@ class Main(SceneBase):
                 crowd=self.navcrowd,
                 physics=self.physics,
                 surfacegraph=self.city,
-                scene_graphs=[self.city,self.clients[0].city,self.clients[1].city],
-                engines=[self._engine,self.clients[0]._engine,self.clients[1]._engine],
-                models=[self.hostile_model,self.clients[0].hostile_model,self.clients[1].hostile_model],
+                scene_graphs=[self.clients[0].city,self.clients[1].city,self.city],
+                engines=[self.clients[0]._engine,self.clients[1]._engine,self._engine],
+                models=[self.clients[0].hostile_model,self.clients[1].hostile_model,self.hostile_model],
                 spawn_pos=None,
                 wander=True,
                 line_of_sight=False,
@@ -5022,9 +5115,9 @@ class Main(SceneBase):
         for n in range(delta):
             self.invaders.append(InvadingAgent(
                 crowd=self.navcrowd,
-                scene_graphs=[self.city,self.clients[0].city,self.clients[1].city],
-                engines=[self._engine,self.clients[0]._engine,self.clients[1]._engine],
-                models=[self.hostile_model,self.clients[0].hostile_model,self.clients[1].hostile_model],
+                scene_graphs=[self.clients[0].city,self.clients[1].city,self.city],
+                engines=[self.clients[0]._engine,self.clients[1]._engine,self._engine],
+                models=[self.clients[0].hostile_model,self.clients[1].hostile_model,self.hostile_model],
                 bulletworld=self.physics,
                 spawn_pos=pos,
                 hotspot=pos,
@@ -5225,7 +5318,7 @@ class Main(SceneBase):
                         self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
                     a.last_report_time[c] = now
             if not report_valid:
-                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participants/ID/%i' % (c))
+                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participants/ID/%i' % c)
                 self.clients[c].overall_score.score_event(self.pancam_false_loss)
             self.last_report_press_time[c] = now
 
@@ -5408,11 +5501,13 @@ class Main(SceneBase):
     def create_checkpoint(self,
                           visible_to,   # indices of the clients who should be able to see the checkpoint
                           **kwargs):
-        """Helper function to create a new checkpoint object with the correct display parameters set up. """
-        return Checkpoint(
-            display_scenegraphs=[self.city] + [self.clients[k].city for k in visible_to],
-            display_funcs=[(create_worldspace_gizmo,destroy_worldspace_gizmo)] + [(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to],
-            display_engines=[self._engine] + [self.clients[k]._engine for k in visible_to],
+        """Helper function to create a new checkpoint gizmo object with the correct display parameters set up. """
+        return SmartGizmo(
+            display_scenegraphs=[self.clients[k].city for k in visible_to] + [self.city],
+            display_funcs=[(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
+            display_engines=[self.clients[k]._engine for k in visible_to] + [self._engine],
+            client_indices = visible_to + [2],
+            gizmo_name='Checkpoint',
             **kwargs)
 
 

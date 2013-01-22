@@ -1,15 +1,25 @@
 import direct.gui.OnscreenImage
 from pandac.PandaModules import *
 
-def create_worldspace_gizmo(position=(0,0,0),image='icons/downarrow.png',color=(1,1,1,0.75),throughwalls=True,oncamera=False,scale=2,parent=None,engine=None):
+def create_worldspace_gizmo(
+        position=(0,0,0),               # where to create the gizmo
+        hpr=(0,0,0),                    # heading/pitch/roll
+        image='icons/downarrow.png',    # image to use for the gizmo
+        color=(1,1,1,0.75),             # color tinting of the image
+        scale=2,                        # scale of the object
+        throughwalls=True,              # whether the gizmo shines through whalls
+        camera_mask=(),                 # list of camera bits from which to hide the instance
+        parent=None,                    # parent scene node (e.g., render)
+        engine=None,                    # engine to use to create the gizmo
+        billboard=True):                # whether to enable an automatic billboard effect (turn toward camera)
     """Utility to create a gizmo billboard that visually indicates a world-space location."""
-    gizmo = direct.gui.OnscreenImage.OnscreenImage(image = image, pos=tuple(position), scale=0, color=color, parent=parent)
-    if not oncamera:
-        gizmo.hide(BitMask32.bit(3))
-        gizmo.hide(BitMask32.bit(4))
+    gizmo = direct.gui.OnscreenImage.OnscreenImage(image = image, pos=tuple(position), hpr=hpr, scale=0, color=color, parent=parent)
+    for c in camera_mask:
+        gizmo.hide(BitMask32.bit(c))
     gizmo.setTransparency(TransparencyAttrib.MAlpha)
     gizmo.setScale(scale)
-    gizmo.setBillboardPointEye()
+    if billboard:
+        gizmo.setBillboardPointEye()
     if throughwalls:
         gizmo.setBin("fixed", 40)
         gizmo.setDepthTest(False)
