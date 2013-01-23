@@ -1118,6 +1118,7 @@ class AttentionSetManager(LatentModule):
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
                  blink_count = 4,                                                   # number of blinks performed the attention indicators when they come on
                  blink_duration = 0.75,                                             # duration of the blinks (on state & off state, respectively)
+                 skip_duplicate_instructors = [('sounds','spoken sentences')]       # a list of pairs of instructors that are duplicate: if both are in the list (for a particular instruction), remove the second one from that list (e.g. two voice channels)
     ):
         LatentModule.__init__(self)
         self.client_idx = client_idx
@@ -1134,6 +1135,7 @@ class AttentionSetManager(LatentModule):
         self.active_regions = []                            # currently active regions
         self.prev_active_regions = []                       # previously active regions
         self.load_distribution_override = None              # can override the current allowed load distribution
+        self.skip_duplicate_instructors = skip_duplicate_instructors
 
         self.mask_regions(available_subset)                 # apply the region mask
 
@@ -1184,7 +1186,13 @@ class AttentionSetManager(LatentModule):
                     for r in self.active_regions[1:]:
                         switch_message += ' and the ' + r
                 switch_message += '.'
-            for regionname in self.prev_active_regions:
+            # remove potential duplicates from the output channels
+            instruct_via = self.prev_active_regions
+            for potential_duplicate in self.skip_duplicate_instructors:
+                if potential_duplicate[0] in instruct_via and potential_duplicate[1] in instruct_via:
+                    instruct_via.remove(potential_duplicate[1])
+            # now output on all that remain
+            for regionname in instruct_via:
                 self.instructors[regionname](switch_message)
 
             # update the visibility of the region activity indicators
@@ -2070,10 +2078,10 @@ class SoundTask(LatentModule):
                  client_idx,                                    # ID of the responsible participant
 
                  # timing control
-                 sound_interval = lambda: random.uniform(6,15), # interval between sound events
-                 lock_duration = (5,6),                         # duration for which the query presenter is blocked by satmap-related queries
-                 onset_delay = lambda: random.uniform(2,4),     # onset delay of the satmap-related queries
-                 response_timeout = 5,                          # response timeout for the queries
+                 sound_interval = lambda: random.uniform(10,18),# interval between sound events
+                 lock_duration = (7,9),                         # duration for which the query presenter is blocked by sound-queries
+                 onset_delay = lambda: random.uniform(2,4),     # onset delay of the sound-related queries
+                 response_timeout = 7,                          # response timeout for the queries
                  focused = False,                               # whether this scheduler is currently focused
 
                  # scoring
@@ -2159,6 +2167,8 @@ class SoundTask(LatentModule):
 
             # emit the sound and onset marker
             rpyc.async(self.stimpresenter.sound)(filename,direction=angle,volume=self.sound_volume,block=False)
+            if self.client_idx==0:
+                print "Now playing " + label + " on " + direction + "..."
             self.marker('Stimulus/Auditory/File/"%s", Stimulus/Auditory/Direction/%s, Experiment Control/Task/Sound Events/{identifier:%i|label:%s}, Participant/ID/%i' % (filename, direction.capitalize(), question.identifier, question.label, self.client_idx))
 
             if self.focused and (random.random() > self.distractor_fraction):
@@ -4002,7 +4012,7 @@ class Main(SceneBase):
         # block structure
         self.permutation = 4                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
-        self.num_missions_per_block = (4,6)                    # number of missions per block [minimum,maximum]
+        self.num_missions_per_block = (4,6)                     # number of missions per block [minimum,maximum]
 
         # mission mix
         self.lull_mission_types = ['lull-deep']                 # possible lull missions (appear between any two blocks)
@@ -4120,7 +4130,7 @@ class Main(SceneBase):
 
         # wandering agent parameters
         self.wanderer_count = 10                                # number of hostile wanderers in some of the checkpoint missions
-        self.pan_wanderer_count = 10                            # number of hostile wanderers in the pan-the-cam mission
+        self.pan_wanderer_count = 7                             # number of hostile wanderers in the pan-the-cam mission
         self.hostile_minimum_distance = 30.0                    # closer than this and you are spotted
         self.hostile_field_of_view = 90.0                       # the field of view of the agents
         self.hostile_agent_head_height = 2                      # in meters, for accurate line-of-sight checks
@@ -4142,14 +4152,14 @@ class Main(SceneBase):
         self.min_spotted_interval = 10                          # the player cannot be spotted by a given hostile more frequently than every this many seconds
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
-        self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
-        self.pancam_wanderer_range = (225,225)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
+        self.panwatch_duration = (240,360)                      # duration of the pan/watch mission
+        self.pancam_wanderer_range = (200,200)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = (5,9)                           # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
         self.checkpoint_max_distance = 200                      # maximum direct distance between any two successive checkpoints on a tour
         self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
-        self.double_report_cutoff = 5                           # if an agent is being reported within shorter succession than this many seconds it counts as a double report
+        self.double_report_cutoff = 15                          # if an agent is being reported within shorter succession than this many seconds it counts as a double report
         self.potentially_visible_cutoff = 3                     # if an agent was potentially visible for longer than this, and has not been reported before it went away
                                                                 # we count this as a miss
         self.short_hide_cutoff = 15                             # if an agent was hidden but was still visible less than this many seconds ago we count that as
@@ -5472,14 +5482,15 @@ class Main(SceneBase):
                 if counts_as_report:
                     a.on_reported()
                     report_valid = True
-                    if now - a.last_report_time[c] < self.double_report_cutoff:
-                        # reporting the same object in too short succession
-                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
-                        score_delta += self.pancam_double_loss
-                    else:
+                    # last report was long enough ago or the object had not been potentially visible since some time after the last report
+                    if now - a.last_report_time[c] > self.double_report_cutoff or a.last_report_time[c] < a.potentially_invisible_since[c]:
                         # valid report
                         self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
                         score_delta += self.pancam_spotted_gain
+                    else:
+                        # reporting the same object in too short succession
+                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
+                        score_delta += self.pancam_double_loss
                     a.last_report_time[c] = now
             if report_valid:
                 self.clients[c].overall_score.score_event(score_delta,nosound=False)
@@ -5600,8 +5611,6 @@ class Main(SceneBase):
                                 ):
         """ Reset a lost player vehicle: places it on the map again and resets the orientation. """
         # reset can only be triggered once every few seconds
-        self.clients[num].remote_stimpresenter.sound(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume)
-
         if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and self.agent_control[num] == 'vehicle':
             print "Client " + str(num) + " pressed the reset button."
             self.marker('Response/Button Press/Reset Vehicle, Participant/ID/%i' % num)
