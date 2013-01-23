@@ -52,6 +52,9 @@ screen_aspect = 1200/700.0  # screen aspect ratio that this should run on (note:
 # ======================== 
 
 def livecoding(fn):
+    return fn
+
+def livecoding_slow(fn):
     """
     A decorator that displays exceptions but keeps them from leaking out of a given function. Can be used to halt and
     fix (i.e., redeclare) the function at run-time, re-invoke the corrected version, and continue.
@@ -4010,7 +4013,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 4                                    # permutation number; used to determine the mission mix
+        self.permutation = 1                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (4,6)                     # number of missions per block [minimum,maximum]
 
@@ -4028,12 +4031,6 @@ class Main(SceneBase):
         self.terrain_types = ['LSE_desertplains_flat']           # the possible terrain types
         self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
         self.truck_name = "Truck"                                # name of the truck entity in the world: this is used to position/find the truck location
-
-        #self.world_types = ['LSE_Mark4_tiny_zup']               # the possible environments; there must be a file 'media/<name>.bam' that
-                                                                 # is the actual scene graph and a file 'media/<name>_navmesh.bin' that is the navigation mesh for it
-        #self.terrain_types = ['LSE_desertplains']               # the possible environments; there must be a file 'media/<name>_color.png' and 'media/<name>_height.png'
-        #self.agent_names = ["PlayerA","PlayerB"]                # name of the agent objects in the world map file (3d model)
-        #self.truck_name = "PlayerB"                             # name of the truck entity in the world: this is used to position/find the truck location
 
         # enabled attention set
         self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
@@ -4151,7 +4148,7 @@ class Main(SceneBase):
         self.min_reset_interval = 3                             # minimum interval between agent position resets, in seconds
         self.min_spotted_interval = 10                          # the player cannot be spotted by a given hostile more frequently than every this many seconds
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
-        self.lull_duration = (60,120)                           # min/max duration of a lull mission
+        self.lull_duration = (120,240)                          # min/max duration of a lull mission
         self.panwatch_duration = (240,360)                      # duration of the pan/watch mission
         self.pancam_wanderer_range = (200,200)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
@@ -4583,7 +4580,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
+            self.reset_control_scheme(controlscheme,randomize=False)
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.clients[self.static_idx].attention_manager.load_distribution_override = lambda: random.choice([1,1,1,1,2,2,2,2])
@@ -4643,7 +4640,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
+            self.reset_control_scheme(controlscheme,randomize=False)
 
             # determine the navigation zone around the relevant subject
             v = self.agents[self.panning_idx]
@@ -4899,8 +4896,6 @@ class Main(SceneBase):
             self.reset_control_scheme(['vehicle','vehicle'])
             self.worldmap_task.active_agents = [0,1]
             self.create_invaders(self.invader_count)
-            self.create_controllables()
-
             # display the truck icon on satmap
             visible_to = [0,1]
             self.truck_gizmo = SmartGizmo(
@@ -4979,7 +4974,6 @@ class Main(SceneBase):
             # clean up
             if self.truck_gizmo:
                 self.truck_gizmo.destroy()
-            self.destroy_controllables()
             self.destroy_invaders()
             taskMgr.remove('UpdateScorePeriodic')
 
