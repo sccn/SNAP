@@ -3987,7 +3987,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 2                                    # permutation number; used to determine the mission mix
+        self.permutation = 4                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (4,6)                    # number of missions per block [minimum,maximum]
 
@@ -4204,6 +4204,7 @@ class Main(SceneBase):
         self.vehicle_idx = None                                 # index of the vehicle client (0 if both are vehicle-bound)
         self.aerial_idx = None                                  # index of the aerial client (0 if both are air-bound)
         self.static_idx = None                                  # index of the static client (0 if both are static)
+        self.truck_gizmo = None
 
         self.wanderers = []                                     # randomly wandering agents
         self.invaders = []                                      # agents that invade a particular location (= the truck)
@@ -4883,12 +4884,12 @@ class Main(SceneBase):
 
             # display the truck icon on satmap
             visible_to = [0,1]
-            self.truck_gizmo.append(SmartGizmo(
+            self.truck_gizmo = SmartGizmo(
                 display_scenegraphs=[self.clients[j].city for j in visible_to] + [self.city],
                 display_funcs=[(self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for j in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
                 display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
                 client_indices = visible_to + [2],
-                position=self.truck_pos,image=self.truck_icon,scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=True,billboard=True,throughwalls=True))
+                pos=self.truck_pos,image=self.truck_icon,scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=True,billboard=True,throughwalls=True)
 
             # show instructions
             self.broadcast_message('starting now, perform the secure-the-perimeter mission with your partner.',mission=True)
@@ -4957,6 +4958,8 @@ class Main(SceneBase):
             self.update_score_both(self.perimeter_finish_bonus)
         finally:
             # clean up
+            if self.truck_gizmo:
+                self.truck_gizmo.destroy()
             self.destroy_controllables()
             self.destroy_invaders()
             taskMgr.remove('UpdateScorePeriodic')
