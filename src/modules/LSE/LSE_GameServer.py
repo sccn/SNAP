@@ -945,7 +945,11 @@ class QueryPresenter(LatentModule):
 
                  # task-specific sounds
                  miss_sound = 'fail-buzzer-02.wav',         # sound to play when the subject misses a query
-                 miss_volume = 0.0                          # volume of the miss sound
+                 miss_volume = 0.0,                         # volume of the miss sound
+
+                 # skipped a response
+                 skip_sound = 'KenbeepSoft.wav',            # sound to play whens the subject slick skip
+                 skip_volume = 0.5,                         # volume of the skip sound
                  ):
 
         LatentModule.__init__(self)
@@ -966,6 +970,8 @@ class QueryPresenter(LatentModule):
         self.default_query_prefix = default_query_prefix
         self.client_idx = client_idx
         self.miss_sound = miss_sound
+        self.skip_sound = skip_sound
+        self.skip_volume = skip_volume
         self.miss_volume = miss_volume
 
         self._locked_until = 0
@@ -4159,8 +4165,6 @@ class Main(SceneBase):
         self.repeated_response_loss = -2                        # loss incurred by too many repeats
         self.repeated_response_penalty_sound = 'slap.wav'       # sound that comes with this type of penalty
         self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
-        self.skip_sound = 'click2s.wav'                         # sound to play whens the subject slick skip
-        self.skip_volume = 0.5                                  # volume of the skip sound
 
         # push-to-talk logic
         self.pushtotalk_sound = 'ptt_beep.wav'                  # sound heard when pressing the push-to-talk button
