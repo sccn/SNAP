@@ -1549,7 +1549,7 @@ class CommTask(LatentModule):
                  lull_time = lambda: random.uniform(20,60),                         # duration of lulls, in seconds (drawn per lull)
                  situation_time = lambda: random.uniform(30,90),                    # duration of developing situations, in seconds (drawn per situation)
                  clearafter = 4,                                                    # clear presenter this many seconds after message display
-                 message_interval = lambda: random.uniform(12,30),                  # message interval, in s (drawn per message)
+                 message_interval = lambda: random.uniform(8,15),                   # message interval, in s (drawn per message) (was 12,30)
                  other_callsign_fraction = lambda: random.uniform(0.45,0.55),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
                  no_callsign_fraction = lambda: random.uniform(0.05,0.10),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
                  time_fraction_until_questions = lambda: random.uniform(0.15,0.35), # the fraction of time into the situation until the first question comes up (drawn per situation)
@@ -3486,7 +3486,8 @@ class ClientGame(SceneBase):
         self.braking = False                                # whether the brake button is currently engaged
         self.previous_handbrake_button = False              # whether the handbrake button was on in the previous handler call
         self.handbrake_engaged = False                      # whether the handbrake is currently engaged
-        self.push_to_chat = False                           # whether the push-to-chat button is currently engaged
+        self.push_to_talk = False                           # whether the push-to-talk button is currently engaged
+        self.previous_push_to_talk = False
 
         # per-client scoring
         self.overall_score = None                           # this object handles the score counting
@@ -3914,8 +3915,12 @@ class ClientGame(SceneBase):
         self.axis_u = u
         self.axis_v = v
         self.braking = buttons[2]
-        self.push_to_chat = buttons[3]
+        self.push_to_talk = buttons[3]
         self.master.on_joystick(self.num,x,y,u,v,buttons)
+        if not self.push_to_talk == self.previous_push_to_talk:
+            self.previous_push_to_talk = self.push_to_talk
+            if self.push_to_talk:
+                self.master.on_pushtotalk(self.num)
 
     def on_speech(self,phrase):
         self.master.on_client_speech(self.num,phrase)
@@ -4006,7 +4011,7 @@ class Main(SceneBase):
         self.checkpoint_scale_satmap = 3.5                               # size of the checkpoint icon
 
         # vehicular control parameters
-        self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others)
+        self.engine_force = 175                                 # force of the vehicle engine (determines max-speed, among others) (was 250)
         self.brake_force = 10                                   # force of the brakes
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
@@ -4096,7 +4101,7 @@ class Main(SceneBase):
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
         self.pancam_wanderer_range = (150,150)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
-        self.checkpoint_count = (10,18)                         # number of checkpoints to go through
+        self.checkpoint_count = (5,9)                           # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
         self.checkpoint_max_distance = 200                      # maximum direct distance between any two successive checkpoints on a tour
         self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
@@ -4119,6 +4124,11 @@ class Main(SceneBase):
         self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
         self.skip_sound = 'click2s.wav',                        # sound to play whens the subject slick skip
         self.skip_volume = 0.5                                  # volume of the skip sound
+
+        # push-to-talk logic
+        self.pushtotalk_sound = 'ptt_beep.wav'                  # sound heard when pressing the push-to-talk button
+        self.pushtotalk_own_volume = 0.37                       # volume on own headset
+        self.pushtotalk_other_volume = 0.22                     # volume on other's headset
 
         # worldmap task
         self.worldmap_task_params = {}                          # overrides defaults from ProbedObjectsTask
@@ -5371,6 +5381,11 @@ class Main(SceneBase):
                 self.on_client_reset_vehicle(client)
 
     @livecoding
+    def on_pushtotalk(self,client):
+        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,block=False)
+        rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,block=False)
+
+    @livecoding
     def on_client_report(self,c):
         """ Called when a client preses the 'report' button during the pan-the-cam mission. """
         now = time.time()
@@ -5446,7 +5461,7 @@ class Main(SceneBase):
 
         print str(time.time()) + " client",cl_idx,"said:",phrase
         if actual_speech:
-            if self.clients[cl_idx].push_to_chat:
+            if not self.clients[cl_idx].push_to_talk:
                 print str(time.time()) + ": ignoring speech detection due to push-to-chat being pressed (",phrase,")"
                 self.marker('Experiment Control/Task/IgnoredResponse/Speech/%s, Participant/ID/%i' % (phrase,cl_idx))
                 return
