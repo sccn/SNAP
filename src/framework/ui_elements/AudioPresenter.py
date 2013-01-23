@@ -26,7 +26,7 @@ class AudioPresenter(MessagePresenter):
     
     def __init__(self,
                  direction=0.0,         # horizontal sound direction (-1..+1 is left to right panned)
-                 volume=0.3,              # sound source volume
+                 volume=0.3,            # sound source volume
                  playrate=1.0,          # the playrate of the sound (changes pitch and time)
                  timeoffset=0.0,        # time offset into the file
                  looping=False,         # whether the sound should be looping; can be turned off by calling .stop() on the return value of this function

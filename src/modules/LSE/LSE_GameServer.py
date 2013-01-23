@@ -1070,6 +1070,7 @@ class QueryPresenter(LatentModule):
             self.scorecounters[scoredomain].score_event(loss_incorrect,nosound=False)
         elif actual_response == skip_response:
             self.marker('Experiment Control/Task/Skipped Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
+            rpyc.async(self.stimpresenter.sound)(self.skip_sound,self.skip_volume,block=False)
             self.scorecounters[scoredomain].score_event(loss_skipped)
         else:
             self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
@@ -1105,7 +1106,7 @@ class AttentionSetManager(LatentModule):
                                 # these are used to generate top-down switch cues
                  indicators,    # a dictionary of all attention regions and associated activity indicator functions, of the form: {'visual',[disable_function,enable_function], 'auditory',[disable_function,enable_function], ...}
                  load_distribution = lambda: random.choice([0,1,1,1,1,1,1,1,2,2]),  # a function that samples the current number of concurrent modalities from a discrete distribution
-                 maintenance_duration = lambda: random.uniform(30,90),              # a function that samples the duration for which the current attention set shall be maintained, in seconds
+                 maintenance_duration = lambda: random.uniform(30,60),              # a function that samples the duration for which the current attention set shall be maintained, in seconds
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
                  blink_count = 4,                                                   # number of blinks performed the attention indicators when they come on
                  blink_duration = 0.75,                                             # duration of the blinks (on state & off state, respectively)
@@ -2999,7 +3000,9 @@ class SmartGizmo(BasicStimuli):
                  onexperimenter=True,    # whether the gizmo is visible on the experimenter's screen
                  throughwalls=True,      # whether the gizmo is visible through walls of buildings (can also be a list of booleans, e.g. [True,False], to assign a different setting per scene graph)
                  billboard=True,         # whether to enable a billboard effect (always points to the respective camera)
-                 gizmo_name=''           # name of the gizmo for marker purposes (no markers if empty)
+                 gizmo_name='',          # name of the gizmo for marker purposes (no markers if empty)
+                 sat_scale=None,         # optionally the scale on the satellite map (overrides global scale)
+                 cam_scale=None          # optionally the scale on the cam viewport (overrides global scale)
                  ):
         BasicStimuli.__init__(self)
 
@@ -3025,6 +3028,8 @@ class SmartGizmo(BasicStimuli):
         self.throughwalls = throughwalls
         self.gizmo_name = gizmo_name
         self.identifier = next(_gizmo_id_generator)         # unique identifier (constant)
+        self.sat_scale = sat_scale if sat_scale else scale
+        self.cam_scale = cam_scale if cam_scale else scale
 
         # run-time variables
         self.cam_gizmos = []        # holds a list of scene nodes visible on the camera, one per display scene graph
@@ -3040,7 +3045,7 @@ class SmartGizmo(BasicStimuli):
             self.cam_gizmos.append(rpyc.async(self.display_funcs[k][0])(
                 position = self.pos,
                 hpr = self.hpr,
-                scale=self.scale,
+                scale=self.cam_scale,
                 image=self.image[k],
                 parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
@@ -3052,7 +3057,7 @@ class SmartGizmo(BasicStimuli):
             self.sat_gizmos.append(rpyc.async(self.display_funcs[k][0])(
                 position = self.pos,
                 hpr = self.hpr,
-                scale=self.scale,
+                scale=self.sat_scale,
                 image=self.image[k],
                 parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
@@ -3374,7 +3379,7 @@ class ClientGame(SceneBase):
         self.satmap_update_interval = 4                     # in seconds
 
         # audio parameters
-        self.vocal_communications_volume = 0.55             # volume of the vocal communication streams
+        self.vocal_communications_volume = 0.75             # volume of the vocal communication streams (was 0.55)
 
         # ambience sound setup
         self.ambience_sound = 'sounds\\nyc_amb2.wav'        # sound file of the background ambience loop
@@ -3409,18 +3414,38 @@ class ClientGame(SceneBase):
                                    }
         self.satmap_score_args = {# display params                  # arguments for the satmap task score counter
                                    'bar_rect':rect(grid(3,(2,5),(2,10),'topleft',ma=0.0125),grid(3,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
+                                   # score parameters are scaled down a bit
+                                   'initial_score':33,             # the initial score
+                                   'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                   'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
                                  }
         self.viewport_score_args = {# display params                 # arguments for the viewport tasks score counter
                                   'bar_rect':rect(grid(2,(2,5),(2,10),'topleft',ma=0.0125),grid(2,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
+                                  # score parameters are scaled down a bit
+                                  'initial_score':33,             # the initial score
+                                  'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                  'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
         }
         self.sound_score_args = {# display params                 # arguments for the sound score counter
                                  'bar_rect':rect(grid(1,(2,10),(3,10),'topleft',ma=0.0125),grid(1,(5,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
+                                 # score parameters are scaled down a bit
+                                 'initial_score':33,             # the initial score
+                                 'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                 'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
         }
         self.audiocomm_score_args = {# display params                 # arguments for the audio comms score counter
                                     'bar_rect':rect(grid(1,(6,10),(3,10),'topleft',ma=0.0125),grid(1,(9,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
+                                    # score parameters are scaled down a bit
+                                    'initial_score':33,             # the initial score
+                                    'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                    'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
         }
         self.textcomm_score_args = {# display params                 # arguments for the text comms score counter
                                     'bar_rect':rect(grid(1,(2,5),(4,10),'topleft',ma=0.0125),grid(1,(4,5),(4,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
+                                    # score parameters are scaled down a bit
+                                    'initial_score':33,             # the initial score
+                                    'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                    'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
         }
 
         self.stress_task_args = {}                          # arguments for the stress modulation process
@@ -3768,12 +3793,12 @@ class ClientGame(SceneBase):
         """
         Toggle the satmap visibility.
         """
-        self.marker('Experiment Control/Task/Satellite Map/%s, Participant/ID/%i' % ('Enabled' if show else 'Disabled', self.num))
         if show and self.satmap_viewport is None:
             self.satmap_viewport = self.create_viewport(self.agent_satmap_rect,self.satmap_camera)
         elif not show and not (self.satmap_viewport is None):
-            self.satmap_viewport.destroy()
+            self._engine.base.win.removeDisplayRegion(self.satmap_viewport)
             self.satmap_viewport = None
+        self.marker('Experiment Control/Task/Satellite Map/%s, Participant/ID/%i' % ('Enabled' if show else 'Disabled', self.num))
 
     @livecoding
     def update_satmap(self,task):
@@ -3977,7 +4002,8 @@ class Main(SceneBase):
         self.unfriendly_agent_icon = 'icons/unfriendly_agent_icon.png'  # icon to use for hostile agents (oriented)
         self.neutral_agent_icon = 'icons/neutral_agent_icon.png'        # icon to use for neutral agents (oriented)
         self.agent_icon_scale = 3.5                                     # size of the agent icons (in meters relative to ground map)
-        self.checkpoint_scale = 3.5                                     # size of the checkpoint icon
+        self.checkpoint_scale_cam = 2                                   # size of the checkpoint icon
+        self.checkpoint_scale_satmap = 3.5                               # size of the checkpoint icon
 
         # vehicular control parameters
         self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others)
@@ -4041,6 +4067,7 @@ class Main(SceneBase):
         # panning control parameters
         self.pan_speed = 5                                      # speed at which the camera pans
         self.report_repeat_press_interval = 0.75                # if the report button is held down for longer than this, a second report action will be triggered
+        self.panning_dead_zone = 0.15                           # center dead zone during pan-the-cam control
 
         # wandering agent parameters
         self.wanderer_count = 10                                # number of hostile wanderers in some of the checkpoint missions
@@ -4090,6 +4117,8 @@ class Main(SceneBase):
         self.repeated_response_loss = -2                        # loss incurred by too many repeats
         self.repeated_response_penalty_sound = 'sounds/slap.wav'# sound that comes with this type of penalty
         self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
+        self.skip_sound = 'click2s.wav',                        # sound to play whens the subject slick skip
+        self.skip_volume = 0.5                                  # volume of the skip sound
 
         # worldmap task
         self.worldmap_task_params = {}                          # overrides defaults from ProbedObjectsTask
@@ -4438,9 +4467,9 @@ class Main(SceneBase):
         blockdisplay = self.write('Current block #: ' + str(b+1) + '/' + str(self.num_blocks),pos=(-1.5,-0.975),scale=0.025,duration=max_duration,block=False)
         # for each mission in the block...
         for m in range(self.block_lengths[b]):
-            missiondisplay = self.write('Mission # within block: ' + str(m+1) + '/' + str(self.block_lengths[b]),pos=(-1.5,-0.925),scale=0.025,duration=max_duration,block=False)
-            # play the next block mission
             missiontype = self.block_missions[b][m] if not self.mission_override else self.mission_override
+            missiondisplay = self.write('Mission # within block: ' + str(m+1) + '/' + str(self.block_lengths[b]) + '; name: ' + missiontype,pos=(-1.5,-0.925),scale=0.025,duration=max_duration,block=False)
+            # play the next block mission
             self.marker('Experiment Control/Sequence/Mission Begins/%s' % missiontype)
             if missiontype == 'indiv-drive/watch':
                 self.play_indiv_drive_watch(['vehicle','static'])
@@ -4462,6 +4491,7 @@ class Main(SceneBase):
                 self.write('This mission type (' + missiontype + ') has not yet been implemented.',5)
             missiondisplay.destroy()
             self.marker('Experiment Control/Sequence/Mission Ends/%s' % missiontype)
+            self.broadcast_message('this mission is now over.')
         blockdisplay.destroy()
 
         # play the next lull mission
@@ -4708,6 +4738,10 @@ class Main(SceneBase):
         """
         try:
             # set up UI and control schemes
+            self.clients[0].toggle_satmap(True)
+            self.clients[1].toggle_satmap(True)
+            self.sleep(4)
+
             self.create_wanderers(self.wanderer_count)
             self.reset_control_scheme(['vehicle','aerial'])
             self.clients[self.vehicle_idx].toggle_satmap(False)
@@ -5084,7 +5118,7 @@ class Main(SceneBase):
                 # add pan control
                 mat = self.agents[client].getParent().getMat(render)
                 row3 = mat.getRow(3)
-                mat *= Mat4.rotateMat(-y*self.pan_speed,mat.getRow3(2))
+                mat *= Mat4.rotateMat(-max(0,y-self.panning_dead_zone)*self.pan_speed,mat.getRow3(2))
                 mat.setRow(3,row3)
                 self.agents[client].getParent().setMat(render,mat)
 
@@ -5356,15 +5390,15 @@ class Main(SceneBase):
                     if now - a.last_report_time[c] < self.double_report_cutoff:
                         # reporting the same object in too short succession
                         self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
-                        self.clients[c].overall_score.score_event(self.pancam_double_loss)
+                        self.clients[c].overall_score.score_event(self.pancam_double_loss,nosound=False)
                     else:
                         # valid report
                         self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
-                        self.clients[c].overall_score.score_event(self.pancam_spotted_gain)
+                        self.clients[c].overall_score.score_event(self.pancam_spotted_gain,nosound=False)
                     a.last_report_time[c] = now
             if not report_valid:
                 self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participants/ID/%i' % c)
-                self.clients[c].overall_score.score_event(self.pancam_false_loss)
+                self.clients[c].overall_score.score_event(self.pancam_false_loss,nosound=False)
             self.last_report_press_time[c] = now
 
     def client_ack(self):
@@ -5555,7 +5589,8 @@ class Main(SceneBase):
             display_engines=[self.clients[k]._engine for k in visible_to] + [self._engine],
             client_indices = visible_to + [2],
             gizmo_name='Checkpoint',
-            scale=self.checkpoint_scale,
+            cam_scale=self.checkpoint_scale_cam,
+            sat_scale=self.checkpoint_scale_satmap,
             **kwargs)
 
 
