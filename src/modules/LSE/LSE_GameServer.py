@@ -647,7 +647,8 @@ class ScoreCounter(BasicStimuli):
                  bar_fine_color = (0,1,0,1),          # the color of the bar when above the critical mark
                  bar_abovemax_color = (0,0,1,1),      # the color of the bar when above the maximum
                  font_size = 4,                       # font size of the score text
-                 text_color = (0.65,0.65,1,1),          # color of the score text itself
+                 text_color = (0.65,0.65,1,1),        # color of the score text itself
+                 text_color_negative = (1,0,0,1),     # color of the score text when negative
                  bar_vertical_squish = 0.5,           # squishes the bar vertically...
 
                  # sound parameters
@@ -701,6 +702,7 @@ class ScoreCounter(BasicStimuli):
 
         self.font_size = font_size
         self.text_color = text_color
+        self.text_color_negative = text_color_negative
 
         self.sound_params = sound_params
         self.gain_file = gain_file
@@ -763,7 +765,7 @@ class ScoreCounter(BasicStimuli):
         if not nosound:
             self.play_delta_sounds(delta)
         self.update_graphics()
-
+        # handle dependent counters
         if self.dependent_score:
             self.dependent_score.score_event(delta,nosound=True)
 
@@ -791,10 +793,10 @@ class ScoreCounter(BasicStimuli):
         self._bar_indicator.setColor(col[0],col[1],col[2],col[3])
         self._bar_scaler.setScale(max(0.0,min(1.0,self.score/float(self.maximum_level))),1,1)
         self._text.setText(self.counter_name + ': ' + str(self.score))
-        if self._is_failure:
-            self._text.setFg(1,0,0,1)
+        if self.score <= 0:
+            self._text.setFg((self.text_color_negative[0],self.text_color_negative[1],self.text_color_negative[2],self.text_color_negative[3]))
         else:
-            self._text.setFg(1,1,1,1)
+            self._text.setFg((self.text_color[0],self.text_color[1],self.text_color[2],self.text_color[3]))
 
     def cur_color(self):
         """ Calculate the current bar color. """
@@ -943,7 +945,7 @@ class QueryPresenter(LatentModule):
 
                  # task-specific sounds
                  miss_sound = 'fail-buzzer-02.wav',         # sound to play when the subject misses a query
-                 miss_volume = 0.5                          # volume of the miss sound
+                 miss_volume = 0.0                          # volume of the miss sound
                  ):
 
         LatentModule.__init__(self)
@@ -1070,7 +1072,7 @@ class QueryPresenter(LatentModule):
             self.scorecounters[scoredomain].score_event(loss_incorrect,nosound=False)
         elif actual_response == skip_response:
             self.marker('Experiment Control/Task/Skipped Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
-            rpyc.async(self.stimpresenter.sound)(self.skip_sound,self.skip_volume,block=False)
+            rpyc.async(self.stimpresenter.sound)(self.skip_sound,volume=self.skip_volume,block=False)
             self.scorecounters[scoredomain].score_event(loss_skipped)
         else:
             self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
@@ -1084,7 +1086,7 @@ class QueryPresenter(LatentModule):
         """ Function that is called when a subset fails to make a timely response to a query. """
         self.marker('Experiment Control/Task/Missed Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
         self.scorecounters[scoredomain].score_event(loss_missed)
-        rpyc.async(self.stimpresenter.sound)(self.miss_sound,self.miss_volume,block=False)
+        rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False)
         # clear the respective presenter
         for f in self.clearfuncs[querydomain]:
             f()
@@ -1554,15 +1556,15 @@ class CommTask(LatentModule):
                  numcallsigns=6,                            # subset of callsigns to use
 
                  # probabilities & timing control
-                 lull_time = lambda: random.uniform(20,60),                         # duration of lulls, in seconds (drawn per lull)
+                 lull_time = lambda: random.uniform(20,40),                         # duration of lulls, in seconds (drawn per lull)
                  situation_time = lambda: random.uniform(30,90),                    # duration of developing situations, in seconds (drawn per situation)
                  clearafter = 4,                                                    # clear presenter this many seconds after message display
                  message_interval = lambda: random.uniform(8,15),                   # message interval, in s (drawn per message) (was 12,30)
                  other_callsign_fraction = lambda: random.uniform(0.45,0.55),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
                  no_callsign_fraction = lambda: random.uniform(0.05,0.10),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
-                 time_fraction_until_questions = lambda: random.uniform(0.15,0.35), # the fraction of time into the situation until the first question comes up (drawn per situation)
+                 time_fraction_until_questions = lambda: random.uniform(0.05,0.15), # the fraction of time into the situation until the first question comes up (drawn per situation)
                                                                                     # in the tutorial mode, this should probably be close to zero
-                 questioned_fraction = lambda: random.uniform(0.5,0.8),             # fraction of targeted messages that incur questions
+                 questioned_fraction = lambda: random.uniform(0.6,0.8),             # fraction of targeted messages that incur questions
                  post_timeout_silence = lambda: random.uniform(1,3),                # radio silence after a timeout of a question has expired (good idea or not?)
 
                  # response control
@@ -2245,7 +2247,7 @@ class ProbedObjectsTask(LatentModule):
                  # promotion of objects to candidates for questions                 
                  candidate_radius = 20,                      # objects can only become candidate for questions if they get within this radius
                  candidate_viewcone = 55,                    # objects can only become candidate for questions if they get within this ("inner") view cone
-                 candidate_visible_duration = 1,             # objects can only become candidates if they stay in view for this long
+                 candidate_visible_duration = 0.7,           # objects can only become candidates if they stay in view for this long
                  vischeck_max_cutoff = 150,                  # maximum cutoff for the visibility test, as an optimization (should be larger than candidate_radius)
 
                  # issuance of questions
@@ -2255,7 +2257,7 @@ class ProbedObjectsTask(LatentModule):
                  drop_candidate_after = 6,                   # drop an object from potential candidacy if it has stayed outside the inner viewcone for this many seconds
                                                              # (note: no question will be asked if there is at least one more candidate of the same object category)
                  # question details
-                 distractor_fraction = 0.66,                 # probability of a candidate event triggering no question (= a distractor)
+                 distractor_fraction = 0.4,                 # probability of a candidate event triggering no question (= a distractor)
                  color_question_fraction = 0.0,              # fraction of questions that is about object color rather than side
                  lock_duration = (5,6),                      # duration for which the query presenter is blocked by the queries
                  onset_delay = lambda: random.uniform(0,2),  # onset delay of the queries
@@ -2418,7 +2420,7 @@ class ProbedObjectsTask(LatentModule):
             else:
                 # from the non-reportable set
                 label = random.choice(list(set(self.labels).difference(set(self.reportable_objects))))
-            # pick a random colorwwwwwwwwwwwwwwwwwww
+            # pick a random color
             color = random.choice(self.item_colors.keys())
 
             # add it to the display scene graphs (keeping track of them in scene_instances)
@@ -2482,7 +2484,10 @@ class ProbedObjectsTask(LatentModule):
                         ent.is_candidate[a] = True
                     # calculate on what side the stimulus was last sighted
                     diff = Vec3(ent.pos - apos)
-                    ent.last_visible_side[a] = 'left' if (diff.normalize() and agent_viewdirs[a].angleDeg(diff) < 0) else 'right'
+                    if diff.normalize():
+                        ent.last_visible_side[a] = 'left' if agent_viewdirs[a].signedAngleDeg(diff,Vec3(0,0,1)) > 0 else 'right'
+                    else:
+                        ent.last_visible_side[a] = 'undetermined' # (should rarely if ever happen)
                 else:
                     ent.has_been_clearly_visible_since[a] = None
 
@@ -2586,7 +2591,7 @@ class ProbedObjectsTask(LatentModule):
         for e in reversed(range(len(self.entities))):
             # check if it's out of range and outside the field of view for both agents...
             in_range = False
-            for a in range(len(self.agents)): #self.active_agents:
+            for a in self.active_agents:
                 pos = self.entities[e].pos
                 direction = pos - agent_positions[a]
                 if direction.length() < self.prune_radius or direction.normalize() and abs(agent_viewdirs[a].angleDeg(direction)) < self.prune_viewcone/2:
@@ -3366,7 +3371,7 @@ class ClientGame(SceneBase):
         self.comm_message_width = 36                        # width of the text comm chatter scroll box (in characters)
         self.comm_message_height = 13                       # height of the text comm chatter scroll box (in characters)
 
-        self.missiontext_instructions_pos = grid(2,(1,1),(5,5),'topleft') # position of the instruction message box (upper left corner)
+        self.missiontext_instructions_pos = grid(2,(1,1),(5,5),'topleft',mov=(0,0.05)) # position of the instruction message box (upper left corner)
         self.missiontext_instructions_width = 18               # width of the instruction message box (in characters)
         self.missiontext_instructions_height = 4               # width of the instruction message box (in characters)
 
@@ -3441,37 +3446,37 @@ class ClientGame(SceneBase):
         self.satmap_score_args = {# display params                  # arguments for the satmap task score counter
                                    'bar_rect':rect(grid(3,(2,5),(2,10),'topleft',ma=0.0125),grid(3,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
                                    # score parameters are scaled down a bit
-                                   'initial_score':33,             # the initial score
-                                   'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                   'initial_score':33,              # the initial score
+                                   'maximum_level':66,              # this is the highest level that can be graphically indicated
                                    'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
                                  }
-        self.viewport_score_args = {# display params                 # arguments for the viewport tasks score counter
+        self.viewport_score_args = {# display params                # arguments for the viewport tasks score counter
                                   'bar_rect':rect(grid(2,(2,5),(2,10),'topleft',ma=0.0125),grid(2,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
                                   # score parameters are scaled down a bit
-                                  'initial_score':33,             # the initial score
-                                  'maximum_level':66,             # this is the highest level that can be graphically indicated
-                                  'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
+                                  'initial_score':33,               # the initial score
+                                  'maximum_level':66,               # this is the highest level that can be graphically indicated
+                                  'critical_level':15               # for completeness (lockdown doesn't apply to overall score)
         }
-        self.sound_score_args = {# display params                 # arguments for the sound score counter
+        self.sound_score_args = {# display params                   # arguments for the sound score counter
                                  'bar_rect':rect(grid(1,(2,10),(3,10),'topleft',ma=0.0125),grid(1,(5,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
                                  # score parameters are scaled down a bit
-                                 'initial_score':33,             # the initial score
-                                 'maximum_level':66,             # this is the highest level that can be graphically indicated
-                                 'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
+                                 'initial_score':33,                # the initial score
+                                 'maximum_level':66,                # this is the highest level that can be graphically indicated
+                                 'critical_level':15                # for completeness (lockdown doesn't apply to overall score)
         }
-        self.audiocomm_score_args = {# display params                 # arguments for the audio comms score counter
+        self.audiocomm_score_args = {# display params               # arguments for the audio comms score counter
                                     'bar_rect':rect(grid(1,(6,10),(3,10),'topleft',ma=0.0125),grid(1,(9,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
                                     # score parameters are scaled down a bit
                                     'initial_score':33,             # the initial score
                                     'maximum_level':66,             # this is the highest level that can be graphically indicated
-                                    'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
+                                    'critical_level':15             # for completeness (lockdown doesn't apply to overall score)
         }
-        self.textcomm_score_args = {# display params                 # arguments for the text comms score counter
+        self.textcomm_score_args = {# display params                # arguments for the text comms score counter
                                     'bar_rect':rect(grid(1,(2,5),(4,10),'topleft',ma=0.0125),grid(1,(4,5),(4,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
                                     # score parameters are scaled down a bit
                                     'initial_score':33,             # the initial score
                                     'maximum_level':66,             # this is the highest level that can be graphically indicated
-                                    'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
+                                    'critical_level':15             # for completeness (lockdown doesn't apply to overall score)
         }
 
         self.stress_task_args = {}                          # arguments for the stress modulation process
@@ -4056,7 +4061,7 @@ class Main(SceneBase):
         self.reset_linearimpulse = 1500                         # corrective upwards impulse
         self.reset_height = 1.5                                 # height at which the vehicle is dropped from the sky for a reset
         self.reset_snap_radius = 50                             # radius within which the agent position will snap to a nearest point on the navigation mesh (in meters)
-        self.repeat_reset_interval = 15                         # if a reset happens within less than this many seconds from the previous one, the position will be slightly jittered
+        self.repeat_reset_interval = 7                          # if a reset happens within less than this many seconds from the previous one, the position will be slightly jittered
         self.repeat_reset_jitter = 3                            # maximum jitter amount in meters in case of a repeated reset (in case the subject is stuck in a hole or crevice)
 
         # general physics parameters
@@ -4065,6 +4070,7 @@ class Main(SceneBase):
         self.gravity = 9.81                                     # gravity force
 
         # vehicle physics parameters
+        self.vehicle_dead_zone = 0.15                           # center dead zone during vehicle control
         self.vehicle_wheel_radius = 0.083                       # radius of the wheels, in meters (note: these are tiny)
         self.vehicle_suspension_travel_cm = 10.0                # travel distance for the wheel suspension (this one is in cm)
         self.vehicle_suspension_stiffness = 40.0                # stiffness of the wheel suspension 
@@ -4129,7 +4135,7 @@ class Main(SceneBase):
         self.secure_perimeter_duration = (220,280)              # in seconds ([128,180])
         self.lull_duration = (60,120)                           # min/max duration of a lull mission
         self.panwatch_duration = (180,360)                      # duration of the pan/watch mission
-        self.pancam_wanderer_range = (150,150)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
+        self.pancam_wanderer_range = (225,225)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
         self.checkpoint_count = (5,9)                           # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
@@ -4148,12 +4154,12 @@ class Main(SceneBase):
         self.truck_icon = 'unit19.png'                          # icon of the truck during secure-perimeter
 
         # response logic
-        self.max_same_modality_responses = 10000 #10            # if subject responds more than this many times in a row in the same modality
+        self.max_same_modality_responses = 15                   # if subject responds more than this many times in a row in the same modality
                                                                 # (either speech or button) he/she gets a penalty
         self.repeated_response_loss = -2                        # loss incurred by too many repeats
-        self.repeated_response_penalty_sound = 'sounds/slap.wav'# sound that comes with this type of penalty
+        self.repeated_response_penalty_sound = 'slap.wav'       # sound that comes with this type of penalty
         self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
-        self.skip_sound = 'click2s.wav',                        # sound to play whens the subject slick skip
+        self.skip_sound = 'click2s.wav'                         # sound to play whens the subject slick skip
         self.skip_volume = 0.5                                  # volume of the skip sound
 
         # push-to-talk logic
@@ -4560,7 +4566,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=True) # TODO: remove the randomize=False when done debugging
+            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.clients[self.static_idx].attention_manager.load_distribution_override = lambda: random.choice([1,1,1,1,2,2,2,2])
@@ -4784,10 +4790,6 @@ class Main(SceneBase):
         """
         try:
             # set up UI and control schemes
-            self.clients[0].toggle_satmap(True)
-            self.clients[1].toggle_satmap(True)
-            self.sleep(4)
-
             self.create_wanderers(self.wanderer_count)
             self.reset_control_scheme(['vehicle','aerial'])
             self.clients[self.vehicle_idx].toggle_satmap(False)
@@ -5129,8 +5131,9 @@ class Main(SceneBase):
             if self.agent_control[client] == 'vehicle':
                 # apply vehicular steering
                 cur_speed = self.vehicles[client].getCurrentSpeedKmHour()
-                self.vehicles[client].setSteeringValue(-y*self.steering_range * self.steering_dampspeed/(self.steering_dampspeed+cur_speed), 0)
-                self.vehicles[client].setSteeringValue(-y*self.steering_range * self.steering_dampspeed/(self.steering_dampspeed+cur_speed), 1)
+                steering = max(0,abs(y)-self.vehicle_dead_zone) * (-1 if y<0 else +1)
+                self.vehicles[client].setSteeringValue(-steering*self.steering_range * self.steering_dampspeed/(self.steering_dampspeed+cur_speed), 0)
+                self.vehicles[client].setSteeringValue(-steering*self.steering_range * self.steering_dampspeed/(self.steering_dampspeed+cur_speed), 1)
                 engine_force = self.engine_force
                 if x > 0 and cur_speed > 0:
                     engine_force *= self.reverse_brake_force_multiplier
@@ -5146,16 +5149,17 @@ class Main(SceneBase):
                     self.vehicles[client].setBrake(self.vehicle_roll_friction, 1)
             elif self.agent_control[client] == 'aerial':
                 # apply aerial steering
-                ch = self.vehicles[client].getChassis()
-                mat = self.agents[client].getParent().getMat(render)
-                left = -mat.getRow3(0)
-                forward = mat.getRow3(1)
-                forward.setZ(0)
-                forward *= 1.0 / forward.length()
-                ch.applyCentralForce(Vec3(left.getX()*-y*self.aerial_accel,left.getY()*-y*self.aerial_accel,left.getZ()*-y*self.aerial_accel))
-                ch.applyCentralForce(Vec3(forward.getX()*-x*self.aerial_accel,forward.getY()*-x*self.aerial_accel,forward.getZ()*-x*self.aerial_accel))
-                ch.applyTorque(Vec3(0,0,-v*self.aerial_turnrate))
-                ch.applyTorque(Vec3(left.getX()*u*self.aerial_turnrate,left.getY()*u*self.aerial_turnrate,left.getZ()*u*self.aerial_turnrate))
+                if not self.clients[client].is_locked_down():
+                    ch = self.vehicles[client].getChassis()
+                    mat = self.agents[client].getParent().getMat(render)
+                    left = -mat.getRow3(0)
+                    forward = mat.getRow3(1)
+                    forward.setZ(0)
+                    forward *= 1.0 / forward.length()
+                    ch.applyCentralForce(Vec3(left.getX()*-y*self.aerial_accel,left.getY()*-y*self.aerial_accel,left.getZ()*-y*self.aerial_accel))
+                    ch.applyCentralForce(Vec3(forward.getX()*-x*self.aerial_accel,forward.getY()*-x*self.aerial_accel,forward.getZ()*-x*self.aerial_accel))
+                    ch.applyTorque(Vec3(0,0,-v*self.aerial_turnrate))
+                    ch.applyTorque(Vec3(left.getX()*u*self.aerial_turnrate,left.getY()*u*self.aerial_turnrate,left.getZ()*u*self.aerial_turnrate))
             elif self.agent_control[client] == 'static':
                 # engage brakes and disable steering
                 self.vehicles[client].applyEngineForce(0, 2)
@@ -5173,12 +5177,13 @@ class Main(SceneBase):
                 self.vehicles[client].setBrake(self.brake_force, 0)
                 self.vehicles[client].setBrake(self.brake_force, 1)
                 # add pan control
-                mat = self.agents[client].getParent().getMat(render)
-                row3 = mat.getRow(3)
-                steering = max(0,abs(y-self.panning_dead_zone))*(-1 if y<0 else +1)
-                mat *= Mat4.rotateMat(-steering*self.pan_speed,mat.getRow3(2))
-                mat.setRow(3,row3)
-                self.agents[client].getParent().setMat(render,mat)
+                if not self.clients[client].is_locked_down():
+                    mat = self.agents[client].getParent().getMat(render)
+                    row3 = mat.getRow(3)
+                    steering = max(0,abs(y)-self.panning_dead_zone) * (-1 if y<0 else +1)
+                    mat *= Mat4.rotateMat(-steering*self.pan_speed,mat.getRow3(2))
+                    mat.setRow(3,row3)
+                    self.agents[client].getParent().setMat(render,mat)
 
         # extra aerial control logic (fly-by-wire)
         if 'aerial' in self.agent_control:
@@ -5519,7 +5524,7 @@ class Main(SceneBase):
         print str(time.time()) + " client",cl_idx,"said:",phrase
         if actual_speech:
             if not self.clients[cl_idx].push_to_talk:
-                print str(time.time()) + ": ignoring speech detection due to push-to-chat being pressed (",phrase,")"
+                print str(time.time()) + ": ignoring speech detection due to push-to-talk not being pressed (",phrase,")"
                 self.marker('Experiment Control/Task/IgnoredResponse/Speech/%s, Participant/ID/%i' % (phrase,cl_idx))
                 return
             self.marker('Response/Speech/%s, Participant/ID/%i' % (phrase,cl_idx))
@@ -5585,6 +5590,8 @@ class Main(SceneBase):
                                 ):
         """ Reset a lost player vehicle: places it on the map again and resets the orientation. """
         # reset can only be triggered once every few seconds
+        self.clients[num].remote_stimpresenter.sound(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume)
+
         if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and self.agent_control[num] == 'vehicle':
             print "Client " + str(num) + " pressed the reset button."
             self.marker('Response/Button Press/Reset Vehicle, Participant/ID/%i' % num)
@@ -5596,7 +5603,7 @@ class Main(SceneBase):
 
             # find a nearby point on the navmesh to reset to
             oldpos = self.agents[num].getParent().getPos(self.city)
-            if time.time() - self.last_reset_time[num] < self.repeat_reset_interval:
+            if (time.time() - self.last_reset_time[num]) < self.repeat_reset_interval:
                 oldpos.setX(oldpos.getX()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
                 oldpos.setY(oldpos.getY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
             meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=self.reset_snap_radius)[1])
