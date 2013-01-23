@@ -2642,6 +2642,10 @@ class WanderingAgent(BasicStimuli):
                  replan_max=200,            # maximum distance of next target from current position
                  snap_radius=50,            # tolerance for movement destinations that are not strictly on the navmesh
 
+                 # jump animation (when reported)
+                 jump_duration = 0.3,       # duration of the jump, in seconds
+                 jump_height = 0.5,         # jump height, in meters
+
                  box_constraint = None,     # box constraints for agent movement ((minx,maxx),(miny,maxy),(minz,maxz))
                  ):
         BasicStimuli.__init__(self)
@@ -2656,6 +2660,8 @@ class WanderingAgent(BasicStimuli):
         self.replan_max = replan_max
         self.snap_radius = snap_radius
         self.box_constraint = box_constraint
+        self.jump_duration = jump_duration
+        self.jump_height = jump_height
 
         # if there is a spawn_pos, generate a position that is a certain distance from that given location,
         # and with no line-of-sight to it (otherwise random); generally restrict to valid surfaces
@@ -2707,6 +2713,7 @@ class WanderingAgent(BasicStimuli):
         self.was_potentially_visible_for = [0,0]
         self.last_report_time = [0,0]
         self.last_spotting_time = [0,0]
+        self.last_retreat_time = 0                          # last time when this agent started to retreat (needed to time the jump animation)
 
     def __del__(self):
         self.crowd.remove_agent(self.crowdidx)
@@ -2722,6 +2729,10 @@ class WanderingAgent(BasicStimuli):
         self.marker('Experiment Control/Task/Agents/Wanderers/Move To/{identifier:%i|wander:%s|x:%f|y:%f|z:%f}' % (self.identifier,str(self.wander),pos[0],pos[1],pos[2]))
 
     @livecoding
+    def on_reported(self):
+        self.last_retreat_time = time.time()
+
+    @livecoding
     def update(self):
         """ Update the current position and consider to replan. """
         status = self.crowd.agent_status(self.crowdidx)
@@ -2735,11 +2746,14 @@ class WanderingAgent(BasicStimuli):
             target = navigation.detour2panda(target_detour[1])
             self.marker('Experiment Control/Task/Agents/Wanderers/Wander To/{identifier:%i|wander:%s|x:%f|y:%f|z:%f}' % (self.identifier,str(self.wander),target[0],target[1],target[2]))
         else:
+            # get the jump offset (simple parabola)
+            jump_time = time.time() - self.last_retreat_time
+            jump_offset = 0.0 if jump_time > self.jump_duration else (1 - (jump_time/self.jump_duration - 0.5)**2 * 4) * self.jump_height
             # update position in all scene graphs
             for i in range(len(self.pos_functions)):
-                self.pos_functions[i](self.pos.getX(),self.pos.getY(),self.pos.getZ())
+                self.pos_functions[i](self.pos.getX(),self.pos.getY(),self.pos.getZ() + jump_offset)
                 if self.vel.length() > 0:
-                    self.lookat_functions[i](self.pos.getX()+self.vel.getX(),self.pos.getY()+self.vel.getY(),self.pos.getZ()+self.vel.getZ())
+                    self.lookat_functions[i](self.pos.getX()+self.vel.getX(),self.pos.getY()+self.vel.getY(),self.pos.getZ()+jump_offset+self.vel.getZ())
 
     @livecoding
     def _propose_next_destination(self,curpos):
@@ -3070,7 +3084,7 @@ class SmartGizmo(BasicStimuli):
                 parent=self.display_scenegraphs[k],
                 engine=self.display_engines[k],
                 color=(1,1,1,self.opacity),
-                camera_mask = ((0,1) if not self.onsatmap[k] else ()) + (3,4),
+                camera_mask = ((0,1) if not self.onsatmap[k] else ()) + (2,3,4),
                 billboard=billboard,
                 throughwalls=True))
         if self.gizmo_name:
@@ -3352,6 +3366,10 @@ class ClientGame(SceneBase):
         self.comm_message_width = 36                        # width of the text comm chatter scroll box (in characters)
         self.comm_message_height = 13                       # height of the text comm chatter scroll box (in characters)
 
+        self.missiontext_instructions_pos = grid(2,(1,1),(5,5),'topleft') # position of the instruction message box (upper left corner)
+        self.missiontext_instructions_width = 18               # width of the instruction message box (in characters)
+        self.missiontext_instructions_height = 4               # width of the instruction message box (in characters)
+
         # stress indicator
         self.stress_pos = grid(1,(2,5),(4,5))               # position of the stress indicator (aspect2d coordinates)
         self.stress_size = 0.16                             # size of the stress indicator
@@ -3565,6 +3583,10 @@ class ClientGame(SceneBase):
             pos=(self.sound_gizmo_pos[0],0,self.sound_gizmo_pos[1]),
             scale=self.sound_gizmo_size))
         self.sound_gizmo.setTransparency(TransparencyAttrib.MAlpha)
+
+        # put in the mission briefing indicator
+        self.mission_text = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.TextPresenter.TextPresenter(
+            pos=self.missiontext_instructions_pos,width=self.missiontext_instructions_width,textcolor=(1,1,1,1),framecolor=(0.25,0.25,0.25,1)))
 
     @livecoding
     def init_comm_channels(self):
@@ -3965,7 +3987,7 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 1                                    # permutation number; used to determine the mission mix
+        self.permutation = 2                                    # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (4,6)                    # number of missions per block [minimum,maximum]
 
@@ -4019,7 +4041,7 @@ class Main(SceneBase):
         self.checkpoint_scale_satmap = 3.5                               # size of the checkpoint icon
 
         # vehicular control parameters
-        self.engine_force = 175                                 # force of the vehicle engine (determines max-speed, among others) (was 250)
+        self.engine_force = 215                                 # force of the vehicle engine (determines max-speed, among others) (was 250)
         self.brake_force = 10                                   # force of the brakes
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
@@ -4123,6 +4145,7 @@ class Main(SceneBase):
         self.fendoff_distance = 25                              # in secure-the-perimeter, if an invader is closer than this and has eye contact with a player, it will automatically retreat (no honking necessary)
         self.warn_distance = 50                                 # in secure-the-perimeter, this is the distance within which invaders in field-fov-view respond to the warn-off button
         self.use_manual_checkpoints = False                     # use manually placed checkpoints if present in the map
+        self.truck_icon = 'unit19.png'                          # icon of the truck during secure-perimeter
 
         # response logic
         self.max_same_modality_responses = 10000 #10            # if subject responds more than this many times in a row in the same modality
@@ -4484,7 +4507,6 @@ class Main(SceneBase):
         self.marker('Experiment Control/Sequence/Block Begins/%i' % b)
         blockdisplay = self.write('Current block #: ' + str(b+1) + '/' + str(self.num_blocks),pos=(-1.5,-0.975),scale=0.025,duration=max_duration,block=False)
         # for each mission in the block...
-        self.play_lulldeep()
         for m in range(self.block_lengths[b]):
             missiontype = self.block_missions[b][m] if not self.mission_override else self.mission_override
             missiondisplay = self.write('Mission # within block: ' + str(m+1) + '/' + str(self.block_lengths[b]) + '; name: ' + missiontype,pos=(-1.5,-0.925),scale=0.025,duration=max_duration,block=False)
@@ -4510,7 +4532,7 @@ class Main(SceneBase):
                 self.write('This mission type (' + missiontype + ') has not yet been implemented.',5)
             missiondisplay.destroy()
             self.marker('Experiment Control/Sequence/Mission Ends/%s' % missiontype)
-            self.broadcast_message('this mission is now over.')
+            self.broadcast_message('this mission is now over.',mission=True)
         blockdisplay.destroy()
 
         # play the next lull mission
@@ -4544,8 +4566,8 @@ class Main(SceneBase):
             self.worldmap_task.active_agents = [self.vehicle_idx]
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
-            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the checkpoint mission on your own. Please ignore your partner for now.")
-            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.")
+            self.broadcast_message("starting now, perform the checkpoint mission on your own. Please ignore your partner for now.",mission=True,client=self.vehicle_idx)
+            self.broadcast_message("starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.",mission=True,client=self.static_idx)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
@@ -4597,7 +4619,7 @@ class Main(SceneBase):
         try:
             for cl in self.clients:
                 cl.toggle_satmap(True)
-            self.reset_control_scheme(controlscheme,randomize=True) # TODO: remove the randomize=False when done debugging
+            self.reset_control_scheme(controlscheme,randomize=False) # TODO: remove the randomize=False when done debugging
 
             # determine the navigation zone around the relevant subject
             v = self.agents[self.panning_idx]
@@ -4614,8 +4636,8 @@ class Main(SceneBase):
             self.worldmap_task.active_agents = []
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
-            self.clients[self.panning_idx].viewport_instructions.submit(self.clients[self.panning_idx].id + ", starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.")
-            self.clients[self.static_idx].viewport_instructions.submit(self.clients[self.static_idx].id + ", starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.")
+            self.broadcast_message("starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.",client=self.panning_idx,mission=True)
+            self.broadcast_message("starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.",client=self.static_idx,mission=True)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]], appendTask=True)
@@ -4717,7 +4739,7 @@ class Main(SceneBase):
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
             # show the instructions
-            self.broadcast_message('starting now, perform the cooperative checkpoint mission with your partner.')
+            self.broadcast_message('starting now, perform the cooperative checkpoint mission with your partner.',mission=True)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.movetogether_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.movetogether_score_drain,[0,1]], appendTask=True)
@@ -4774,9 +4796,9 @@ class Main(SceneBase):
             self.clients[self.vehicle_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['satellite map icons']))
             self.worldmap_task.active_agents = [self.vehicle_idx]
             # display instructions for everyone
-            self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ", starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions.")
-            self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', starting now, perform the aerial guidance mission with your partner. Guide your partner through the checkpoints.')
             self.message_presenter.submit('One of the players now guides the other through the map from an aerial perspective.')
+            self.broadcast_message("starting now, perform the aerial guidance mission with your partner. Follow your partner's instructions.",client=self.vehicle_idx,mission=True)
+            self.broadcast_message('starting now, perform the aerial guidance mission with your partner. Guide your partner through the checkpoints.',client=self.aerial_idx,mission=True)
             self.sleep(5)
             # generate new checkpoint sequence
             if not (self.use_manual_checkpoints and self.checkpoints):
@@ -4858,8 +4880,18 @@ class Main(SceneBase):
             self.worldmap_task.active_agents = [0,1]
             self.create_invaders(self.invader_count)
             self.create_controllables()
+
+            # display the truck icon on satmap
+            visible_to = [0,1]
+            self.truck_gizmo.append(SmartGizmo(
+                display_scenegraphs=[self.clients[j].city for j in visible_to] + [self.city],
+                display_funcs=[(self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for j in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
+                display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
+                client_indices = visible_to + [2],
+                position=self.truck_pos,image=self.truck_icon,scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=True,billboard=True,throughwalls=True))
+
             # show instructions
-            self.broadcast_message('starting now, perform the secure-the-perimeter mission with your partner.')
+            self.broadcast_message('starting now, perform the secure-the-perimeter mission with your partner.',mission=True)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]], appendTask=True)
@@ -4922,7 +4954,6 @@ class Main(SceneBase):
                 # update policy shortly
                 self.sleep(0.25)
 
-            self.broadcast_message('you have completed the perimeter mission!')
             self.update_score_both(self.perimeter_finish_bonus)
         finally:
             # clean up
@@ -4942,7 +4973,7 @@ class Main(SceneBase):
                 cl.stress_task.disabled = True
             self.reset_control_scheme(['static','static'])
             self.worldmap_task.active_agents = []
-            self.broadcast_message('starting now, do nothing except watch and respond to the red warning light for the next few minutes.')
+            self.broadcast_message('starting now, do nothing except watch and respond to the red warning light for the next few minutes.',mission=True)
             self.sleep(5)
             self.sleep(random.uniform(self.lull_duration[0],self.lull_duration[1]))
         finally:
@@ -4959,7 +4990,7 @@ class Main(SceneBase):
             cl.toggle_satmap(True)
         self.reset_control_scheme(['vehicle','vehicle'])
         self.worldmap_task.active_agents = []
-        self.broadcast_message('starting now, you may roam freely.')
+        self.broadcast_message('starting now, you may roam freely.',mission=True)
         self.sleep(10000)
 
     # ====================
@@ -5141,7 +5172,8 @@ class Main(SceneBase):
                 # add pan control
                 mat = self.agents[client].getParent().getMat(render)
                 row3 = mat.getRow(3)
-                mat *= Mat4.rotateMat(-max(0,y-self.panning_dead_zone)*self.pan_speed,mat.getRow3(2))
+                steering = max(0,abs(y-self.panning_dead_zone))*(-1 if y<0 else +1)
+                mat *= Mat4.rotateMat(-steering*self.pan_speed,mat.getRow3(2))
                 mat.setRow(3,row3)
                 self.agents[client].getParent().setMat(render,mat)
 
@@ -5286,11 +5318,19 @@ class Main(SceneBase):
             cl.overall_score.score_event(delta*cl.stress_task.stress_level)
 
     @livecoding
-    def broadcast_message(self,msg,no_callsign=False):
-        """ Send a text message to both clients. """
+    def broadcast_message(self,msg,no_callsign=False,mission=False,client=None):
+        """ Send a text message to one or both clients. Optionally also present on the mission text screen."""
         self.message_presenter.submit(msg)
-        for cl in self.clients:
-            cl.viewport_instructions.submit(('' if no_callsign else cl.id + ', ') + msg)
+        if client is None:
+            for cl in self.clients:
+                cl.viewport_instructions.submit(('' if no_callsign else cl.id + ', ') + msg)
+                if mission:
+                    cl.mission_text.submit(('' if no_callsign else cl.id + ', ') + msg)
+        else:
+            self.clients[client].viewport_instructions.submit(('' if no_callsign else self.clients[client].id + ', ') + msg)
+            if mission:
+                self.clients[client].mission_text.submit(('' if no_callsign else self.clients[client].id + ', ') + msg)
+
         self.marker('Stimulus/Visual/Language/Sentence/%s, Participant/ID/both' % msg)
 
     @livecoding
@@ -5386,12 +5426,12 @@ class Main(SceneBase):
     def on_joystick(self,client,x,y,u,v,buttons):
         """ Handle joystick events. """
         if buttons[0]:   # Gamepad A button
-            self.on_client_warn(client)
-        if buttons[1]:   # Gamepad B button
             if self.agent_control[client] == 'panning':
                 self.on_client_report(client)
             else:
-                self.on_client_reset_vehicle(client)
+                self.on_client_warn(client)
+        if buttons[1]:   # Gamepad B button
+            self.on_client_reset_vehicle(client)
 
     @livecoding
     def on_pushtotalk(self,client):
@@ -5414,6 +5454,7 @@ class Main(SceneBase):
                 a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
                 counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
                 if counts_as_report:
+                    a.on_reported()
                     report_valid = True
                     if now - a.last_report_time[c] < self.double_report_cutoff:
                         # reporting the same object in too short succession
