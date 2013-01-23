@@ -2376,6 +2376,8 @@ class ProbedObjectsTask(LatentModule):
 
         while True:
             self.sleep(0.1)
+            if len(self.active_agents) == 0:
+                continue
 
             # get current positions of the agents
             agent_positions = []
@@ -4165,6 +4167,7 @@ class Main(SceneBase):
         self.repeated_response_loss = -2                        # loss incurred by too many repeats
         self.repeated_response_penalty_sound = 'slap.wav'       # sound that comes with this type of penalty
         self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
+        self.pancam_max_report_distance = 300                   # when reporting agents beyond this distance will be considered "too far away" (and not counted)
 
         # push-to-talk logic
         self.pushtotalk_sound = 'ptt_beep.wav'                  # sound heard when pressing the push-to-talk button
@@ -5462,22 +5465,25 @@ class Main(SceneBase):
             v_vec = v.getParent().getMat(self.city).getRow3(1)
             v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
             # for each agent...
+            score_delta = 0
             for a in self.wanderers:
                 a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
-                counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view) is not None
+                counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view,src_maxsight=self.pancam_max_report_distance) is not None
                 if counts_as_report:
                     a.on_reported()
                     report_valid = True
                     if now - a.last_report_time[c] < self.double_report_cutoff:
                         # reporting the same object in too short succession
                         self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
-                        self.clients[c].overall_score.score_event(self.pancam_double_loss,nosound=False)
+                        score_delta += self.pancam_double_loss
                     else:
                         # valid report
                         self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
-                        self.clients[c].overall_score.score_event(self.pancam_spotted_gain,nosound=False)
+                        score_delta += self.pancam_spotted_gain
                     a.last_report_time[c] = now
-            if not report_valid:
+            if report_valid:
+                self.clients[c].overall_score.score_event(score_delta,nosound=False)
+            else:
                 self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participants/ID/%i' % c)
                 self.clients[c].overall_score.score_event(self.pancam_false_loss,nosound=False)
             self.last_report_press_time[c] = now
