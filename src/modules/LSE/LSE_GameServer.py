@@ -1125,6 +1125,7 @@ class AttentionSetManager(LatentModule):
         self.blink_duration = blink_duration
         self.active_regions = []                            # currently active regions
         self.prev_active_regions = []                       # previously active regions
+        self.load_distribution_override = None              # can override the current allowed load distribution
 
         self.mask_regions(available_subset)                 # apply the region mask
 
@@ -1138,7 +1139,14 @@ class AttentionSetManager(LatentModule):
 
         while True:
             # determine the number of concurrent regions
-            num_regions = self.load_distribution()
+            if self.load_distribution_override is not None:
+                num_regions = self.load_distribution_override()
+            else:
+                num_regions = self.load_distribution()
+
+            # wait until the available subset is not empty (any more)
+            while len(self.available_subset) == 0:
+                self.sleep(5)
 
             # randomly draw this many active regions from self.regions
             self.active_regions = random.sample(set(self.available_subset).intersection(set(self.regions.keys())),min(num_regions,len(self.available_subset)))
@@ -4476,6 +4484,7 @@ class Main(SceneBase):
         self.marker('Experiment Control/Sequence/Block Begins/%i' % b)
         blockdisplay = self.write('Current block #: ' + str(b+1) + '/' + str(self.num_blocks),pos=(-1.5,-0.975),scale=0.025,duration=max_duration,block=False)
         # for each mission in the block...
+        self.play_lulldeep()
         for m in range(self.block_lengths[b]):
             missiontype = self.block_missions[b][m] if not self.mission_override else self.mission_override
             missiondisplay = self.write('Mission # within block: ' + str(m+1) + '/' + str(self.block_lengths[b]) + '; name: ' + missiontype,pos=(-1.5,-0.925),scale=0.025,duration=max_duration,block=False)
@@ -4531,6 +4540,7 @@ class Main(SceneBase):
             self.reset_control_scheme(controlscheme,randomize=True) # TODO: remove the randomize=False when done debugging
             # disable the viewport side task
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
+            self.clients[self.static_idx].attention_manager.load_distribution_override = lambda: random.choice([1,1,1,1,2,2,2,2])
             self.worldmap_task.active_agents = [self.vehicle_idx]
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
@@ -4570,6 +4580,7 @@ class Main(SceneBase):
         finally:
             # cleanup
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set))
+            self.clients[self.static_idx].attention_manager.load_distribution_override = None
             if self.checkpoint:
                 self.checkpoint.destroy()
                 self.checkpoint = None
@@ -4599,6 +4610,7 @@ class Main(SceneBase):
             # disable the viewport side tasks
             self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set).difference(['curbside objects']))
+            self.clients[self.static_idx].attention_manager.load_distribution_override = lambda: random.choice([1,1,1,1,2,2,2,2])
             self.worldmap_task.active_agents = []
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
@@ -4671,6 +4683,7 @@ class Main(SceneBase):
         finally:
             # cleanup
             self.clients[self.static_idx].attention_manager.mask_regions(set(self.available_attention_set))
+            self.clients[self.static_idx].attention_manager.load_distribution_override = None
             self.clients[self.panning_idx].attention_manager.mask_regions(set(self.available_attention_set))
             self.ignore(accept_message)
             self.destroy_wanderers()
