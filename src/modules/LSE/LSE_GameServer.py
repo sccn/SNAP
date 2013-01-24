@@ -51,10 +51,10 @@ screen_aspect = 1200/700.0  # screen aspect ratio that this should run on (note:
 # === HELPER FUNCTIONS ===
 # ======================== 
 
-def livecoding(fn):
+def livecoding_fast(fn):
     return fn
 
-def livecoding_slow(fn):
+def livecoding(fn):
     """
     A decorator that displays exceptions but keeps them from leaking out of a given function. Can be used to halt and
     fix (i.e., redeclare) the function at run-time, re-invoke the corrected version, and continue.
@@ -3507,7 +3507,10 @@ class ClientGame(SceneBase):
                                    'snd_params':{'volume':0.3,'direction':0.0},   # parameters for the sound command
                                    }
         self.text_comm_task_args = {}                       # arguments for the textual communications task
-        self.audio_comm_task_args = {}                      # arguments for the audio communications task
+        self.audio_comm_task_args = {                      # arguments for the audio communications task
+                                    'response_timeout':9,                           # using more generous timeouts here since speech takes a while
+                                    'lock_duration': lambda:random.uniform(9,11),
+        }
         self.satmap_task_args = {}                          # arguments for the satellite map task
         self.sound_task_args = {# diable one of the channels # arguments for the sound task
                                 # 'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
@@ -4013,17 +4016,20 @@ class Main(SceneBase):
         self.nowait = True                                      # skip all confirmations
 
         # block structure
-        self.permutation = 1                                    # permutation number; used to determine the mission mix
+        self.permutation = 18                                   # permutation number; used to determine the mission mix
         self.num_blocks = 5                                     # number of experiment blocks (separated by lulls)
         self.num_missions_per_block = (4,6)                     # number of missions per block [minimum,maximum]
 
         # mission mix
         self.lull_mission_types = ['lull-deep']                 # possible lull missions (appear between any two blocks)
-        self.coop_mission_types = ['coop-secureperimeter','coop-aerialguide','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
+        self.coop_mission_types = ['coop-secureperimeter','coop-aerial/vehicle','coop-vehicle/aerial','coop-movetogether']   # possible coop missions (mixed to certain fractions with indiv missions within each block)
         self.indiv_mission_types = ['indiv-drive/watch','indiv-watch/drive','indiv-pan/watch','indiv-watch/pan'] # possible indiv missions
         self.fraction_coop_per_block = (0.25,0.75)              # permitted fraction of co-op missions per block
-        self.fraction_coop_total = 0.4                          # overall fraction of coop missions out of block missions
-        self.max_repeat_fraction = 0.3                          # maximum fraction of successive mission pairs that consist of the same mission type
+        self.fraction_coop_total = 0.5                          # overall fraction of coop missions out of block missions
+        self.max_repeat_fraction = 0.05                         # maximum fraction of successive mission pairs that consist of the same mission type
+        self.no_duplicates_in_block = True                      # whether to disallow duplicate mission types in a given block
+        self.no_secureperimeter_in_first_block = True           # whether to disallow secure-the-perimeter missions in the first block
+        self.watch_as_first_missions = True                     # whether to enfore that the first two missions are watch/pan and drive/watch missions
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
 
         # world environments
@@ -4061,7 +4067,7 @@ class Main(SceneBase):
         self.checkpoint_scale_satmap = 3.5                               # size of the checkpoint icon
 
         # vehicular control parameters
-        self.engine_force = 215                                 # force of the vehicle engine (determines max-speed, among others) (was 250)
+        self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others) (was 250)
         self.brake_force = 10                                   # force of the brakes
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
@@ -4166,7 +4172,7 @@ class Main(SceneBase):
         self.fendoff_distance = 25                              # in secure-the-perimeter, if an invader is closer than this and has eye contact with a player, it will automatically retreat (no honking necessary)
         self.warn_distance = 50                                 # in secure-the-perimeter, this is the distance within which invaders in field-fov-view respond to the warn-off button
         self.use_manual_checkpoints = False                     # use manually placed checkpoints if present in the map
-        self.truck_icon = 'unit19.png'                          # icon of the truck during secure-perimeter
+        self.truck_icon = 'truck_icon.png'                      # icon of the truck during secure-perimeter
 
         # response logic
         self.max_same_modality_responses = 15                   # if subject responds more than this many times in a row in the same modality
@@ -4254,7 +4260,7 @@ class Main(SceneBase):
         # try to connect to the clients
         self.init_connection()
         # generate the permutation of blocks to use throughout the experiment
-        self.init_block_permutation()
+        self.init_block_permutation(self.permutation)
         # initialize the world (static environment and special objects)
         self.init_static_world()
         # create the player-controlled agents
@@ -4304,15 +4310,15 @@ class Main(SceneBase):
             self.sleep(0.1)
 
     @livecoding
-    def init_block_permutation(self):
+    def init_block_permutation(self,permutation):
         """ Generates a permutation of blocks for the current experiment, according to the value of self.permutation (= the permutation number). """
-        print 'Generating block permutations...',
+        print 'Solving block order...',
         self.nonlull_mission_types = self.coop_mission_types + self.indiv_mission_types
         self.mission_types = self.lull_mission_types + self.nonlull_mission_types
         self.num_missions_nonlull = int(self.num_blocks * (self.num_missions_per_block[0]+self.num_missions_per_block[1]) / 2.0) 
         self.num_missions_total = self.num_missions_nonlull + self.num_blocks-1 # there is a lull mission between any two blocks 
 
-        random.seed(self.permutation*1391 + 31)
+        random.seed(permutation*1391 + 31)
         self.marker('Experiment Control/Sequence/Permutation ID/%i' % self.permutation)
 
         # determine block lengths
@@ -4346,24 +4352,48 @@ class Main(SceneBase):
         while not okay:
             attempts += 1
             random.shuffle(self.mission_order)
+            if self.watch_as_first_missions:
+                case = random.choice([('indiv-watch/pan','indiv-pan/watch'),('indiv-watch/drive','indiv-drive/watch'),('indiv-watch/drive','indiv-pan/watch'),('indiv-watch/pan','indiv-drive/watch'),
+                                      ('indiv-watch/drive','indiv-drive/watch'),('indiv-watch/pan','indiv-pan/watch'),('indiv-watch/pan','indiv-drive/watch'),('indiv-watch/drive','indiv-pan/watch'),
+                                      ('indiv-pan/watch','indiv-watch/pan'),('indiv-drive/watch','indiv-watch/drive'),('indiv-drive/watch','indiv-watch/pan'),('indiv-pan/watch','indiv-watch/drive'),
+                                      ('indiv-drive/watch','indiv-watch/drive'),('indiv-pan/watch','indiv-watch/pan'),('indiv-pan/watch','indiv-watch/drive'),('indiv-drive/watch','indiv-watch/pan')])
+                # remove the two first ocurrences of these missions and the insert at the beginning
+                self.mission_order.remove(case[0])
+                self.mission_order.remove(case[1])
+                self.mission_order.insert(0,case[1])
+                self.mission_order.insert(0,case[0])
             okay = True
+            if self.no_secureperimeter_in_first_block:
+                if 'coop-secureperimeter' in [self.mission_order[k] for k in self.block_indices[0]]:
+                    okay = False
+                    continue
             for blockrange in self.block_indices:
                 fraction_coop = len([m for m in [self.mission_order[k] for k in blockrange] if m.startswith('coop-')]) / float(len(blockrange))
                 if fraction_coop < self.fraction_coop_per_block[0] or fraction_coop > self.fraction_coop_per_block[1]:
                     okay = False
                     break
-                # extra constraint to prevent successive identical missions (requires more mission variety before it can be enabled)
-                num_dups = 0
-                for k in range(len(self.mission_order)-1):
-                    # avoid the same mission twice in a row
-                    if self.mission_order[k] == self.mission_order[k+1]:
-                        num_dups += 1
-                if num_dups * 1.0 / (len(self.mission_order)-1) > self.max_repeat_fraction:
-                    okay = False
-                    break
+                # ensure that a given block contains no duplicate mission types
+                if self.no_duplicates_in_block:
+                    submissions = [self.mission_order[k] for k in blockrange]
+                    if len(set(submissions)) < len(submissions):
+                        okay = False
+                        break
+                else:
+                    # extra constraint to prevent successive identical missions (requires more mission variety before it can be enabled)
+                    num_dups = 0
+                    for k in range(len(self.mission_order)-1):
+                        # avoid the same mission twice in a row
+                        if self.mission_order[k] == self.mission_order[k+1]:
+                            num_dups += 1
+                    if num_dups * 1.0 / (len(self.mission_order)-1) > self.max_repeat_fraction:
+                        okay = False
+                        break
+
+
         self.block_missions = []
         for idxrange in self.block_indices:
             self.block_missions.append([self.mission_order[k] for k in idxrange])
+        print self.block_missions
 
         # now determine the ordering of lull missions
         self.lull_order = self.lull_mission_types * (1+(self.num_blocks-1) / len(self.lull_mission_types))
@@ -4543,8 +4573,10 @@ class Main(SceneBase):
                 self.play_indiv_pan_watch(['static','panning'])
             elif missiontype == 'coop-movetogether':
                 self.play_coop_movetogether()
-            elif missiontype == 'coop-aerialguide':
-                self.play_coop_aerialguide()
+            elif missiontype == 'coop-aerial/vehicle':
+                self.play_coop_aerialguide(['aerial','vehicle'])
+            elif missiontype == 'coop-vehicle/aerial':
+                self.play_coop_aerialguide(['vehicle','aerial'])
             elif missiontype == 'coop-secureperimeter':
                 self.play_secureperimeter()
             elif missiontype == 'indiv-freeroam':
@@ -4553,12 +4585,12 @@ class Main(SceneBase):
                 self.write('This mission type (' + missiontype + ') has not yet been implemented.',5)
             missiondisplay.destroy()
             self.marker('Experiment Control/Sequence/Mission Ends/%s' % missiontype)
-            self.broadcast_message('this mission is now over.',mission=True)
+            self.broadcast_message('this mission is now over. Please wait for a moment.',mission=True)
         blockdisplay.destroy()
 
         # play the next lull mission
         if b < len(self.lull_order):
-            lulldisplay = self.write('Current lull #: ' + str(b+1) + '/' + str(self.num_blocks-1),pos=(-1.5,-0.95),scale=0.05,duration=max_duration)
+            lulldisplay = self.write('Current lull #: ' + str(b+1) + '/' + str(self.num_blocks-1),pos=(-1.5,-0.95),scale=0.05,duration=max_duration,block=False)
             lulltype = self.lull_order[b]
             self.marker('Experiment Control/Sequence/Lull Begins/%s' % lulltype)
             if lulltype == 'lull-deep':
@@ -4796,7 +4828,7 @@ class Main(SceneBase):
             taskMgr.remove('UpdateScorePeriodic')
 
     @livecoding
-    def play_coop_aerialguide(self):
+    def play_coop_aerialguide(self,controlscheme):
         """
         A mission in which one subject has a satellite map and an unmanned aerial vehicle (UAV) and the other subject has a robotic vehicle.
         The aerial subject guides the ground-based subject through a sequence of checkpoints (full situational overview is only available to the
@@ -4805,7 +4837,7 @@ class Main(SceneBase):
         try:
             # set up UI and control schemes
             self.create_wanderers(self.wanderer_count)
-            self.reset_control_scheme(['vehicle','aerial'])
+            self.reset_control_scheme(controlscheme,randomize=False)
             self.clients[self.vehicle_idx].toggle_satmap(False)
             self.clients[self.aerial_idx].toggle_satmap(True)
             # disable the viewport side task for the aerial subject and satmap side tasks for driving subject
@@ -4871,6 +4903,11 @@ class Main(SceneBase):
                 self.broadcast_message('you have successfully reached the checkpoint!')
                 self.update_score_both(self.checkpoint_reach_bonus)
                 self.sleep(3)
+            # slowly sink back to the ground
+            self.broadcast_message('please try to land safely.',client=self.aerial_idx)
+            self.rise_force = 0
+            self.rise_force_offset = 0
+            self.sleep(15)
         finally:
             # cleanup
             self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set))
@@ -5106,7 +5143,7 @@ class Main(SceneBase):
         wheel.setWheelDirectionCs(Vec3(0, 0, -1))
         wheel.setWheelAxleCs(Vec3(1, 0, 0))
         wheel.setWheelRadius(self.vehicle_wheel_radius)
-        wheel.setMaxSuspensionTravelCm(self.vehicle_suspension_travel_cm)    
+        wheel.setMaxSuspensionTravelCm(self.vehicle_suspension_travel_cm)
         wheel.setSuspensionStiffness(self.vehicle_suspension_stiffness)
         wheel.setWheelsDampingRelaxation(self.vehicle_wheel_damping_relaxation)
         wheel.setWheelsDampingCompression(self.vehicle_wheel_damping_compression)
@@ -5212,7 +5249,10 @@ class Main(SceneBase):
             left_planar *= 1.0 / left_planar.length()
             correction = left.cross(left_planar) * self.axis_stabilization
             #noinspection PyUnresolvedReferences
-            self.vehicles[aerial_idx].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
+            self.vehicles[client].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
+        else:
+            self.vehicles[client].getChassis().setAngularDamping(0.0)
+            self.vehicles[client].getChassis().setLinearDamping(0.0)
 
         self.physics.doPhysics(dt, self.physics_solver_max_substeps, self.physics_solver_stepsize)
         self.vehicles[0].getChassis().clearForces()
@@ -5605,7 +5645,7 @@ class Main(SceneBase):
                                 ):
         """ Reset a lost player vehicle: places it on the map again and resets the orientation. """
         # reset can only be triggered once every few seconds
-        if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and self.agent_control[num] == 'vehicle':
+        if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and (self.agent_control[num] == 'vehicle' or self.agent_control[num] == 'panning'):
             print "Client " + str(num) + " pressed the reset button."
             self.marker('Response/Button Press/Reset Vehicle, Participant/ID/%i' % num)
             #noinspection PyUnresolvedReferences
@@ -5619,7 +5659,13 @@ class Main(SceneBase):
             if (time.time() - self.last_reset_time[num]) < self.repeat_reset_interval:
                 oldpos.setX(oldpos.getX()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
                 oldpos.setY(oldpos.getY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
-            meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=self.reset_snap_radius)[1])
+            # using and inrementally enlarged search radius (up to 50 meters range)
+            for radius in range(int(self.reset_snap_radius)):
+                try:
+                    meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=radius)[1])
+                    break
+                except:
+                    mshpos = oldpos
             # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
             hittest = self.physics.rayTestAll(meshpos,Point3(meshpos.getX(),meshpos.getY(),meshpos.getZ()+self.reset_snap_radius))
             if hittest.getNumHits() > 0:

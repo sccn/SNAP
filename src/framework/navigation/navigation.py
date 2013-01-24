@@ -37,7 +37,8 @@ class NavMesh:
         
     def nearest_point(self,
                       pos=(0,0,0),  # query position, in panda3d coordinates
-                      radius=5):    # query radius
+                      radius=5,
+                      throw_if_notfound=False):    # query radius
         """
         Find the nearest point on a navigable polygon in the navmesh. 
         Returns a tuple of (polyref,point).
@@ -46,7 +47,10 @@ class NavMesh:
         tmp_polyref = pyrecast.new_uintp(1)
         tmp_point = pyrecast.dtPoint3(0,0,0)
         self.query.findNearestPoly(panda2detour(pos),radius,self.filter,tmp_polyref,tmp_point) #.disown()
-        return [tmp_polyref,tmp_point]
+        if pyrecast.uintp_getitem(tmp_polyref,0)==0:
+            raise Exception('No polygon found!')
+        else:
+            return [tmp_polyref,tmp_point]
         
     def nearest_edge_point(self,
                            loc,          # in detour coordinates; as returned by, for example, nearest_point (format: [polyref,point])
