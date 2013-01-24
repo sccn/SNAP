@@ -1867,7 +1867,7 @@ class SatmapTask(BasicStimuli):
                  item_scale = 8,                                # size of the items, in meters relative to ground
                  constrain_placement=True,                      # whether to constrain the item placement based on city geometry
                  avoid_repetitions=True,                        # whether to avoid repeatedly displaying the same type of item
-                 satmap_max_retries=50,                         # max number of retries when attempting to find a valid position to create an item position (on a street)
+                 satmap_max_retries=100,                        # max number of retries when attempting to find a valid position to create an item position (on a street)
                  ):
         BasicStimuli.__init__(self)
         self.querypresenter = querypresenter
@@ -4586,9 +4586,9 @@ class Main(SceneBase):
             elif missiontype == 'coop-movetogether':
                 self.play_coop_movetogether()
             elif missiontype == 'coop-aerial/vehicle':
-                self.play_coop_aerialguide(['aerial','vehicle'])
-            elif missiontype == 'coop-vehicle/aerial':
                 self.play_coop_aerialguide(['vehicle','aerial'])
+            elif missiontype == 'coop-vehicle/aerial':
+                self.play_coop_aerialguide(['aerial','vehicle'])
             elif missiontype == 'coop-secureperimeter':
                 self.play_secureperimeter()
             elif missiontype == 'indiv-freeroam':
@@ -5261,10 +5261,12 @@ class Main(SceneBase):
             left_planar *= 1.0 / left_planar.length()
             correction = left.cross(left_planar) * self.axis_stabilization
             #noinspection PyUnresolvedReferences
-            self.vehicles[client].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
+            self.vehicles[aerial_idx].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
         else:
-            self.vehicles[client].getChassis().setAngularDamping(0.0)
-            self.vehicles[client].getChassis().setLinearDamping(0.0)
+            self.vehicles[0].getChassis().setAngularDamping(0.0)
+            self.vehicles[0].getChassis().setLinearDamping(0.0)
+            self.vehicles[1].getChassis().setAngularDamping(0.0)
+            self.vehicles[1].getChassis().setLinearDamping(0.0)
 
         self.physics.doPhysics(dt, self.physics_solver_max_substeps, self.physics_solver_stepsize)
         self.vehicles[0].getChassis().clearForces()
