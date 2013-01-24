@@ -47,7 +47,7 @@ class NavMesh:
         tmp_polyref = pyrecast.new_uintp(1)
         tmp_point = pyrecast.dtPoint3(0,0,0)
         self.query.findNearestPoly(panda2detour(pos),radius,self.filter,tmp_polyref,tmp_point) #.disown()
-        if pyrecast.uintp_getitem(tmp_polyref,0)==0:
+        if throw_if_notfound and pyrecast.uintp_getitem(tmp_polyref,0)==0:
             raise Exception('No polygon found!')
         else:
             return [tmp_polyref,tmp_point]

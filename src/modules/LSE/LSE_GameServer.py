@@ -4063,8 +4063,8 @@ class Main(SceneBase):
         self.unfriendly_agent_icon = 'icons/unfriendly_agent_icon.png'  # icon to use for hostile agents (oriented)
         self.neutral_agent_icon = 'icons/neutral_agent_icon.png'        # icon to use for neutral agents (oriented)
         self.agent_icon_scale = 3.5                                     # size of the agent icons (in meters relative to ground map)
-        self.checkpoint_scale_cam = 2                                   # size of the checkpoint icon
-        self.checkpoint_scale_satmap = 3.5                               # size of the checkpoint icon
+        self.checkpoint_scale_cam = 2                                   # size of the checkpoint icon in 3d viewport
+        self.checkpoint_scale_satmap = 3.5                              # size of the checkpoint icon on the satmap
 
         # vehicular control parameters
         self.engine_force = 250                                 # force of the vehicle engine (determines max-speed, among others) (was 250)
@@ -4172,7 +4172,8 @@ class Main(SceneBase):
         self.fendoff_distance = 25                              # in secure-the-perimeter, if an invader is closer than this and has eye contact with a player, it will automatically retreat (no honking necessary)
         self.warn_distance = 50                                 # in secure-the-perimeter, this is the distance within which invaders in field-fov-view respond to the warn-off button
         self.use_manual_checkpoints = False                     # use manually placed checkpoints if present in the map
-        self.truck_icon = 'truck_icon.png'                      # icon of the truck during secure-perimeter
+        self.truck_icon = 'truck_icon.png'                      # satmap icon of the truck during secure-perimeter
+        self.truck_icon_size = 7                                # size of the satmap truck icon in meters relative to ground
 
         # response logic
         self.max_same_modality_responses = 15                   # if subject responds more than this many times in a row in the same modality
@@ -4940,7 +4941,7 @@ class Main(SceneBase):
                 display_funcs=[(self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for j in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
                 display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
                 client_indices = visible_to + [2],
-                pos=self.truck_pos,image=self.truck_icon,scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=True,billboard=True,throughwalls=True)
+                pos=self.truck_pos,image=self.truck_icon,scale=self.truck_icon_size,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=True,billboard=True,throughwalls=True)
 
             # show instructions
             self.broadcast_message('starting now, perform the secure-the-perimeter mission with your partner.',mission=True)
@@ -5662,7 +5663,7 @@ class Main(SceneBase):
             # using and inrementally enlarged search radius (up to 50 meters range)
             for radius in range(int(self.reset_snap_radius)):
                 try:
-                    meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=radius)[1])
+                    meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=radius, throw_if_notfound=True)[1])
                     break
                 except:
                     mshpos = oldpos
