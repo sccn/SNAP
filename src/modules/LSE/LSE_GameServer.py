@@ -1117,7 +1117,7 @@ class AttentionSetManager(LatentModule):
                                 # these are used to generate top-down switch cues
                  indicators,    # a dictionary of all attention regions and associated activity indicator functions, of the form: {'visual',[disable_function,enable_function], 'auditory',[disable_function,enable_function], ...}
                  load_distribution = lambda: random.choice([0,1,1,1,1,1,1,1,2,2]),  # a function that samples the current number of concurrent modalities from a discrete distribution
-                 maintenance_duration = lambda: random.uniform(30,60),              # a function that samples the duration for which the current attention set shall be maintained, in seconds
+                 maintenance_duration = lambda: random.uniform(60,120),             # a function that samples the duration for which the current attention set shall be maintained, in seconds
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
                  blink_count = 4,                                                   # number of blinks performed the attention indicators when they come on
                  blink_duration = 0.75,                                             # duration of the blinks (on state & off state, respectively)
@@ -1587,7 +1587,7 @@ class CommTask(LatentModule):
                  # response control
                  response_timeout = 6,                      # response timeout...
                  lock_duration = lambda:random.uniform(7,9),# minimum/maximum duration for which the query presenter is locked
-                 loss_incorrect=-2,                         # amount of loss incurred when incorrectly answering
+                 loss_incorrect=-3,                         # amount of loss incurred when incorrectly answering
                  gain_correct=2,                            # amount of reward gained when answering correctly
                  loss_skipped=-1,                           # amount of loss incurred when admitting a miss
                  loss_missed=-2,                            # amount of loss incurred when missing the question (and basically the sentence, too)
@@ -1856,7 +1856,7 @@ class SatmapTask(BasicStimuli):
                  response_timeout = 6,                          # response timeout for the queries
                  focused = False,                               # whether this scheduler is currently focused
                  approx_max_items = 1,                          # the approx. number of max. items (if more we'll be adding no more than we remove)
-                 angular_ambiguity_zone = 7.5,                  # exclude icons that appear to close to the ambiguity zones (i.e. fall within this many degrees from the zone boundaries)
+                 angular_ambiguity_zone = 10,                   # exclude icons that appear to close to the ambiguity zones (i.e. fall within this many degrees from the zone boundaries)
                  loss_incorrect=-2,                             # amount of loss incurred when incorrectly answering
                  gain_correct=2,                                # amount of reward gained when answering correctly
                  loss_skipped=-1,                               # amount of loss incurred when admitting a miss
@@ -1867,6 +1867,7 @@ class SatmapTask(BasicStimuli):
                  item_scale = 8,                                # size of the items, in meters relative to ground
                  constrain_placement=True,                      # whether to constrain the item placement based on city geometry
                  avoid_repetitions=True,                        # whether to avoid repeatedly displaying the same type of item
+                 satmap_max_retries=50,                         # max number of retries when attempting to find a valid position to create an item position (on a street)
                  ):
         BasicStimuli.__init__(self)
         self.querypresenter = querypresenter
@@ -1885,7 +1886,6 @@ class SatmapTask(BasicStimuli):
         self.response_timeout = response_timeout
         self.focused = focused
         self.approx_max_items = approx_max_items
-        self.angular_ambiguity_zone = 5
         self.loss_incorrect=loss_incorrect
         self.loss_missed=loss_missed
         self.loss_skipped=loss_skipped
@@ -1898,6 +1898,7 @@ class SatmapTask(BasicStimuli):
         self.client_idx = client_idx
         self.constrain_placement = constrain_placement
         self.avoid_repetitions = avoid_repetitions
+        self.satmap_max_retries = satmap_max_retries
 
         # load the actual media
         self.filenames = []     # icons with associated queries
@@ -2003,7 +2004,14 @@ class SatmapTask(BasicStimuli):
                     pos = generate_positions(
                         scenegraph=self.local_scenegraph,
                         objectnames=['Pavement','Concrete','Street'],
-                        within_box=((centerpos[0]-self.satmap_coverage[0]/2,centerpos[0]+self.satmap_coverage[0]/2),(centerpos[1]-self.satmap_coverage[1]/2,centerpos[1]+self.satmap_coverage[1]/2),(-10000,10000)),snap_to_navmesh=False)[0]
+                        within_box=((centerpos[0]-self.satmap_coverage[0]/2,centerpos[0]+self.satmap_coverage[0]/2),(centerpos[1]-self.satmap_coverage[1]/2,centerpos[1]+self.satmap_coverage[1]/2),(-10000,10000)),
+                        max_retries=self.satmap_max_retries,
+                        snap_to_navmesh=False)
+                    # can add an item?
+                    if len(pos) == 0:
+                        print "Cannot add new item to satmap; likely one of the agents is outside the street network (skipping)."
+                        return
+                    pos = pos[0]
                 else:
                     pos = (random.uniform(centerpos[0]-self.satmap_coverage[0]/2,centerpos[0]+self.satmap_coverage[0]/2),
                            random.uniform(centerpos[1]-self.satmap_coverage[1]/2,centerpos[1]+self.satmap_coverage[1]/2), centerpos[2])
@@ -2088,7 +2096,7 @@ class SoundTask(LatentModule):
                  focused = False,                               # whether this scheduler is currently focused
 
                  # scoring
-                 loss_incorrect=-2,                             # amount of loss incurred when incorrectly answering
+                 loss_incorrect=-3,                             # amount of loss incurred when incorrectly answering
                  gain_correct=2,                                # amount of reward gained when answering correctly
                  loss_skipped=-1,                               # amount of loss incurred when admitting a miss
                  loss_missed=-2,                                # amount of loss incurred when missing the question (and basically the sentence, too)
@@ -2289,7 +2297,7 @@ class ProbedObjectsTask(LatentModule):
                  reportable_fraction = 0.05,                 # fraction of reportable items among all items
 
                  # scoring
-                 loss_incorrect=-2,                          # amount of loss incurred when incorrectly answering
+                 loss_incorrect=-3,                          # amount of loss incurred when answering incorrectly
                  gain_correct=2,                             # amount of reward gained when answering correctly
                  loss_skipped=-1,                            # amount of loss incurred when admitting a miss
                  loss_missed=-2,                             # amount of loss incurred when missing the question (and basically the sentence, too)
@@ -2389,8 +2397,6 @@ class ProbedObjectsTask(LatentModule):
 
         while True:
             self.sleep(0.1)
-            if len(self.active_agents) == 0:
-                continue
 
             # get current positions of the agents
             agent_positions = []
@@ -2403,10 +2409,15 @@ class ProbedObjectsTask(LatentModule):
                 tmpdir.normalize()
                 agent_viewdirs.append(Vec3(tmpdir.getX(),tmpdir.getY(),tmpdir.getZ()))
 
-            # maintain the desired number of potentially visible items (by adding new ones if necessary)
-            self.add_items(agent_positions,agent_viewdirs)
-            # update the status of the items (visible, etc) and schedule queries if applicable
-            self.update_items(agent_positions,agent_viewdirs)
+            if len(self.active_agents) >= 0:
+                # maintain the desired number of potentially visible items (by adding new ones if necessary)
+                self.add_items(agent_positions,agent_viewdirs)
+                # update the status of the items (visible, etc) and schedule queries if applicable
+                self.update_items(agent_positions,agent_viewdirs)
+            else:
+                print "No active agents, skipping ProbedOjects update"
+                self.sleep(0.5)
+
             # prune old / out-of-view items
             self.prune_items(agent_positions,agent_viewdirs)
 
@@ -2612,10 +2623,10 @@ class ProbedObjectsTask(LatentModule):
         for e in reversed(range(len(self.entities))):
             # check if it's out of range and outside the field of view for both agents...
             in_range = False
+            pos = self.entities[e].pos
             for a in self.active_agents:
-                pos = self.entities[e].pos
                 direction = pos - agent_positions[a]
-                if direction.length() < self.prune_radius or direction.normalize() and abs(agent_viewdirs[a].angleDeg(direction)) < self.prune_viewcone/2:
+                if direction.length() < self.prune_radius or (direction.normalize() and abs(agent_viewdirs[a].angleDeg(direction)) < self.prune_viewcone/2):
                     in_range = True
             if not in_range:
                 # delete it
@@ -4530,7 +4541,7 @@ class Main(SceneBase):
         self.worldmap_task = self.launch(ProbedObjectsTask(
             querypresenters=[self.clients[0].querypresenter,self.clients[1].querypresenter],
             report_scorecounters=[self.clients[0].viewport_score,self.clients[1].viewport_score],
-            agents = [self.agents[0],self.agents[0]],
+            agents = [self.agents[0],self.agents[1]],
             active_agents = [],
             display_scenegraphs = [self.city,self.clients[0].city,self.clients[1].city],
             display_funcs = [(create_worldspace_instance,destroy_worldspace_instance),
@@ -4621,7 +4632,7 @@ class Main(SceneBase):
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject performs a checkpoint driving task.')
             self.broadcast_message("starting now, perform the checkpoint mission on your own. Please ignore your partner for now.",mission=True,client=self.vehicle_idx)
-            self.broadcast_message("starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.",mission=True,client=self.static_idx)
+            self.broadcast_message("starting now, please wait for your next assignment; continue to do side tasks as instructed. Please ignore your partner for now.",mission=True,client=self.static_idx)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.indivdrive_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.indivdrive_score_drain,[self.vehicle_idx]], appendTask=True)
@@ -4691,7 +4702,7 @@ class Main(SceneBase):
             # show instructions
             self.message_presenter.submit('Subjects are tasked with independent missions.\nOne subject is static and interacts only with the side tasks while the other subject has 360 degree control over a camera and reports foreign behaviors.')
             self.broadcast_message("starting now, perform the 360 degree viewing and reporting mission on your own. Please ignore your partner for now.",client=self.panning_idx,mission=True)
-            self.broadcast_message("starting now, please wait for your next mission; continue to do side tasks as instructed. Please ignore your partner for now.",client=self.static_idx,mission=True)
+            self.broadcast_message("starting now, please wait for your next assignment; continue to do side tasks as instructed. Please ignore your partner for now.",client=self.static_idx,mission=True)
             self.sleep(5)
             # set up periodic score update
             taskMgr.doMethodLater(self.pancam_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.pancam_score_gain,[self.panning_idx]], appendTask=True)
