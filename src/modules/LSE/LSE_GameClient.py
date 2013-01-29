@@ -84,7 +84,7 @@ class Main(LatentModule):
         # init speech control
         if self.allow_speech:
             try:
-                framework.speech_io.speech.listenfor(['yes','no','skip','report','red','green','blue','yellow','north','south','east','west','front','back','left','right','alpha move here','bravo move here','alpha move in front of me','bravo move in front of me','alpha move to truck','bravo move to truck','alpha move behind me','bravo move behind me','alpha move to my left','bravo move to my left','alpha move to my right','bravo move to my right','suspicious object'],self.on_speech)
+                framework.speech_io.speech.listenfor(['yes','no','skip','report','red','green','blue','yellow','north','south','east','west','front','back','center','left','right','alpha move here','bravo move here','alpha move in front of me','bravo move in front of me','alpha move to truck','bravo move to truck','alpha move behind me','bravo move behind me','alpha move to my left','bravo move to my left','alpha move to my right','bravo move to my right','suspicious object','unclear'],self.on_speech)
             except:
                 print "Could not initialiate speech control; falling back to touch screen only."
             

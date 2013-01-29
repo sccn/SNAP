@@ -46,3 +46,16 @@ def create_worldspace_instance(model=None,position=(0,0,0),color=(1,1,1,0.75),sc
 def destroy_worldspace_instance(inst):
     print "Destroying instance:", inst
     inst.removeNode()
+
+def flash_objects(objects,                          # tuple or list of objects to flash
+                  flash_color = (1,1,1,1),          # color while flashing
+                  normal_color = (0.8,0.8,0.8,1),   # color when back to normal
+                  duration=0.3,                     # duration of the flash
+                  property_name = 'frameColor',     # name of the color property to change
+                  ):
+    """ Flash (i.e., highlight) a set of objects simultaneously for a certain duration. """
+    def apply(objects,value,property_name,task=None):
+        for o in objects:
+            o[property_name] = value
+    apply(objects,flash_color,property_name)
+    taskMgr.doMethodLater(duration,apply,'RestoreFlashedObjects',extraArgs=[objects,normal_color,property_name],appendTask=True)

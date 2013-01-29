@@ -77,7 +77,7 @@ def livecoding(fn):
                 traceback.print_exc()
             except:
                 print "Traceback failed."
-            # allow the user to intervene and fix the code
+                # allow the user to intervene and fix the code
             # NOTE: If you get here you can fix fn and re-run it -- once it is fixed replace it by evaluating something like: Main.my_old_broken_function = fn
             print "Ignoring / Breakpoint..."
     return wrapped
@@ -108,7 +108,7 @@ def line_of_sight(physics,              # bullet physics world
                   dst_fov=90,           # total field of view of the destination object (in degrees); this is for advanced classification of the constellation between both objects
                   src_margin=1.5,       # maximum bounds of the source object's geometry
                   dst_margin=1.5        # maximum bounds of the destination object's geometry
-                  ):
+):
     """
     Do a line-of-sight check between a source position and destination position (optionally including view direction(s)).
     This function returns one of the following values:
@@ -117,7 +117,7 @@ def line_of_sight(physics,              # bullet physics world
     * 'side' if the source object views the destination object from the side
     * 'behind' if the source object views the destination object from behind
     * 'undetermined' if the source object views the destination object, but the angle of incidence is undetermined (e.g. if both objects have the same position, or if the destination orientation is not known)
-    """ 
+    """
     ray = dst_pos - src_pos
     distance = ray.length()
     if not ray.normalize():
@@ -175,14 +175,14 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                        within_cone_angle = 90,      # angle (e.g., fov) of the conic constraints
                        visibility_params=None,      # optional parameters to override in the visibility check
                        reachability_param='all',    # if 'all', the position needs to be reachable from all points in reachable_from, if 'any' it suffices
-                                                    # if the position is reachable from a single point in reachable_from
+                       # if the position is reachable from a single point in reachable_from
                        nearby_param='all',          # if 'all', the position must be within radius for all points in nearby_to, if 'any' it's enough if a single position is within range
                        within_cone_param='all',     # if 'all', the position must be within the cone for all constraints in within_cone, if 'any' it's enough if a single constraint is satisfied
                        snap_to_navmesh_radius=1,    # if there is a discrepancy between scene graph geometry and navmesh, this is the radius (in meters) within which to snap positions to the navmesh
                        output_coord_sys='panda',    # the coordinate system of the output points; can be 'panda', i.e., Point3(x,y,z), or 'detour', yielding [pyrecast.uintp,pyrecast.floatp]
                        max_retries=3000,            # maximum number of retries per position (returns one less if not satisfiable)
                        snap_to_navmesh=True,        # whether to snap the positions to the navmesh; note that the NM is a bit coarse in some areas...
-                       ):
+):
     """
     Generate a list of world-space positions for an existing scene graph that satisfy a number of criteria, such as being reachable from
     a collection of points, being invisible from a collection of points, being on the surface of an object with a particular name, or being
@@ -195,7 +195,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
     if not (type(objectnames) is list or type(objectnames) is tuple):
         objectnames = [objectnames]
     nodes = []
-    for n in objectnames: 
+    for n in objectnames:
         nodes += scenegraph.findAllMatches('**/' + n + '/-GeomNode')
 
     # reformat into lists
@@ -266,7 +266,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                 # transform into world space coordinates...
                 pnt = transform.xformPoint(pnt)
                 vertices.append(pnt)
-            # pick a random point on the triangle (uniformly distributed)
+                # pick a random point on the triangle (uniformly distributed)
             while True:
                 a = random.random()
                 b = random.random()
@@ -299,7 +299,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                     if not accept:
                         nearby_fails += 1
                         continue
-                else: 
+                else:
                     print "Nearby_param must be 'any' or 'all'"
 
             # check if within conic constraint regions
@@ -363,9 +363,9 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                     continue
 
             # check if the point is reachable from points in the given list
-            if reachable_from is not None:            
+            if reachable_from is not None:
                 if reachability_param == 'all':
-                    accept = True                
+                    accept = True
                     for p in reachable_from:
                         if not navmesh.is_reachable(pos,p):
                             accept = False
@@ -423,7 +423,7 @@ def generate_path(startpos,                    # the starting position of the pa
                   max_retries=10000,                            # maximum number of attempts at generating a feasible path
                   inner_max_retries=300,                        # maximum number of attempts per generated position
                   z_offset=0.75,                                # offset of the path nodes in z axis
-                  ):
+):
     """ Generate a path through a map between two endpoints with pseudo-random intermediate points. """
     for retry in range(max_retries):
         cur_path = [startpos]
@@ -452,7 +452,7 @@ def generate_path(startpos,                    # the starting position of the pa
         if len(cur_path) < num_positions+2:
             # failed to generate path: retry new path
             continue
-        # succeeded: return it
+            # succeeded: return it
         print "  generated path within ", retry+1, "attempts."
         for k in range(len(cur_path)):
             cur_path[k].setZ(cur_path[k].getZ() + z_offset)
@@ -470,7 +470,7 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
          sys='aspect2d',      # output coordinate system (can be 'render2d', 'aspect2d', 'normalized', or 'window')
          exp=0.0,             # expand the cell size by this value (a fraction of screen height; can be a scalar or a (x,y) tuple)
          mov=0.0,             # movement of the cell position (a fraction of screen height; can be a scalar or a (x,y) tuple)
-         ):
+):
     """
     Calculate screen coordinates from positions on a virtual 2d grid on a given screen.
     Supports a border around the edge of the screen, margins between cells and a flexible number of horizontal screens (we use 3 here).
@@ -676,7 +676,7 @@ class ScoreCounter(BasicStimuli):
                  riser_fontsize = 5,                  # font size of the text
 
                  dependent_score = None               # optionally a dependent score counter that shall aslo be updated
-                 ):
+    ):
         BasicStimuli.__init__(self)
         if not sound_params:
             sound_params = {'direction': 0.0}
@@ -714,7 +714,7 @@ class ScoreCounter(BasicStimuli):
         self.failure_file = failure_file
         self.recovery_file = recovery_file
         self.ding_interval = ding_interval
-        self.ding_granularity = ding_granularity 
+        self.ding_granularity = ding_granularity
         self.loss_volume = loss_volume
         self.gain_volume = gain_volume
         self.failure_volume = failure_volume
@@ -764,7 +764,7 @@ class ScoreCounter(BasicStimuli):
         if self.score >= self.critical_level and self._is_failure:
             self._is_failure = False
             self.play_recovery()
-        # display
+            # display
         if not nosound:
             self.play_delta_sounds(delta)
         self.update_graphics()
@@ -953,7 +953,7 @@ class QueryPresenter(LatentModule):
                  # skipped a response
                  skip_sound = 'KenbeepSoft.wav',            # sound to play whens the subject slick skip
                  skip_volume = 0.5,                         # volume of the skip sound
-                 ):
+    ):
 
         LatentModule.__init__(self)
         self.stimpresenter = stimpresenter if stimpresenter is not None else self
@@ -983,7 +983,7 @@ class QueryPresenter(LatentModule):
     def submit_question(self,
                         question,  # the question object to submit
                         **kwargs   # other arguments to submit()
-                        ):
+    ):
         """ Submit a question object. This is a convenience function. """
         self.submit(query=question.phrase, expected_response=question.correct_answer, wrong_responses=list(set(question.all_answers) - set([question.correct_answer])),
             query_id=question.identifier, **kwargs)
@@ -1022,7 +1022,7 @@ class QueryPresenter(LatentModule):
                 loss_missed=None,
                 focused=True,                # whether this query belongs to an event that was supposed to be focused (otherwise no score consequences)
                 no_queryprefix=False         # whether to disable the query prefix (if any)
-                ):
+    ):
         """ The internal query-submission function that does the actual work. """
 
         # apply defaults to response codes
@@ -1038,7 +1038,7 @@ class QueryPresenter(LatentModule):
             lock_duration = self.default_lock_duration
         if response_timeout is None:
             response_timeout = self.default_response_timeout
-        # apply defaults to score aspects
+            # apply defaults to score aspects
         if loss_incorrect is None:
             loss_incorrect= self.default_loss_incorrect
         if gain_correct is None:
@@ -1055,8 +1055,13 @@ class QueryPresenter(LatentModule):
                 lock_duration = random.uniform(lock_duration[0],lock_duration[1])
             self._locked_until = time.time()+lock_duration
             funcs = self.presenterfuncs[querydomain]
-            for f in funcs:
-                f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration)
+            if query:
+                for f in funcs:
+                    if query[-4:] == '.wav' or query[-4:] == '.mp3':
+                        # if it's a file don't try to prefix with callsign
+                        f(query,lockduration=lock_duration)
+                    else:
+                        f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration)
             self.marker('Experiment Control/Task/Queries/Issue-%s/{identifier:%i}, Participant/ID/%i' % ('Focused' if focused else 'Nonfocused',query_id,self.client_idx))
             if focused:
                 # watch for a response event
@@ -1086,7 +1091,7 @@ class QueryPresenter(LatentModule):
         else:
             self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
             self.scorecounters[scoredomain].score_event(loss_incorrect)
-        # clear the respective presenter
+            # clear the respective presenter
         for f in self.clearfuncs[querydomain]:
             f()
 
@@ -1111,10 +1116,10 @@ class AttentionSetManager(LatentModule):
                  client_idx,    # identifier of the responsible participant
                  client_id,     # callsign of the responsible participant
                  regions,       # a dictionary of all attention regions and associated focusable objects, of the form: {'visual',[my_visual_focusable_obj1,my_visual_focusable_obj2], 'auditory',[my_auditory_focusable_obj], ...}
-                                # each of these objects has a .focused property which governs how the object behaves, in particular how it assigns scores (e.g., a non-focused object would not assign minus points for missed responses)
-                                # alternatively each of these objects can be a two-element tuple of functions to invoke, where the first is used to defocus and the second is used to set focus
+                 # each of these objects has a .focused property which governs how the object behaves, in particular how it assigns scores (e.g., a non-focused object would not assign minus points for missed responses)
+                 # alternatively each of these objects can be a two-element tuple of functions to invoke, where the first is used to defocus and the second is used to set focus
                  instructors,   # a dictionary of all attention regions and associated instruction presenter functions, of the form: {'visual',[my_instruction_presenter1,my_instruction_presenter2], 'auditory',[my_instruction_presenter3], ...}
-                                # these are used to generate top-down switch cues
+                 # these are used to generate top-down switch cues
                  indicators,    # a dictionary of all attention regions and associated activity indicator functions, of the form: {'visual',[disable_function,enable_function], 'auditory',[disable_function,enable_function], ...}
                  load_distribution = lambda: random.choice([0,1,1,1,1,1,1,1,2,2]),  # a function that samples the current number of concurrent modalities from a discrete distribution
                  maintenance_duration = lambda: random.uniform(60,120),             # a function that samples the duration for which the current attention set shall be maintained, in seconds
@@ -1189,12 +1194,12 @@ class AttentionSetManager(LatentModule):
                     for r in self.active_regions[1:]:
                         switch_message += ' and the ' + r
                 switch_message += '.'
-            # remove potential duplicates from the output channels
+                # remove potential duplicates from the output channels
             instruct_via = self.prev_active_regions
             for potential_duplicate in self.skip_duplicate_instructors:
                 if potential_duplicate[0] in instruct_via and potential_duplicate[1] in instruct_via:
                     instruct_via.remove(potential_duplicate[1])
-            # now output on all that remain
+                # now output on all that remain
             for regionname in instruct_via:
                 self.instructors[regionname](switch_message)
 
@@ -1211,7 +1216,7 @@ class AttentionSetManager(LatentModule):
                 for k in range(self.blink_count):
                     self.fade_indicators(1,0,self.blink_duration,now_focused)
                     self.fade_indicators(0,1,self.blink_duration,now_focused)
-                # ensure that everything is in the correct visibility state
+                    # ensure that everything is in the correct visibility state
                 for regionname in self.active_regions:
                     self.indicators[regionname](1)
                 for regionname in set(self.region_names).difference(set(self.active_regions)):
@@ -1236,7 +1241,7 @@ class AttentionSetManager(LatentModule):
             if now > tend:
                 break
             self.sleep(0.05)
-        # ensure that they have the correct final value
+            # ensure that they have the correct final value
         for regionname in region_subset:
             self.indicators[regionname](to_val)
 
@@ -1286,6 +1291,7 @@ class AttentionSetManager(LatentModule):
                     print "Could not set unfocused state during region mask (" + r +")"
         print "Client",self.client_idx,", mask: ",self.available_subset
 
+
 # ===============================
 # === SUBTASK IMPLEMENTATIONS ===
 # ===============================
@@ -1312,20 +1318,20 @@ class StressTask(LatentModule):
                  high_transition_icon = 'highstress.png',               # sound to play when transitioning to high stress
                  high_transition_volume = 0.3,                          # volume of that sound
                  stimpresenter = None,                                  # an instance of BasicStimuli to present the sound events                  
-                 ):
+    ):
         LatentModule.__init__(self)
-        self.stimpresenter = stimpresenter if stimpresenter is not None else self 
-        self.iconpresenterfunc = iconpresenterfunc 
-        self.low_stress_duration = low_stress_duration  
-        self.high_stress_duration = high_stress_duration  
+        self.stimpresenter = stimpresenter if stimpresenter is not None else self
+        self.iconpresenterfunc = iconpresenterfunc
+        self.low_stress_duration = low_stress_duration
+        self.high_stress_duration = high_stress_duration
         self.low_stress_value = low_stress_value
         self.high_stress_value = high_stress_value
-        self.low_transition_sound = low_transition_sound  
-        self.high_transition_sound = high_transition_sound  
+        self.low_transition_sound = low_transition_sound
+        self.high_transition_sound = high_transition_sound
         self.low_transition_icon = low_transition_icon
-        self.high_transition_icon = high_transition_icon  
+        self.high_transition_icon = high_transition_icon
         self.low_transition_volume = low_transition_volume
-        self.high_transition_volume = high_transition_volume  
+        self.high_transition_volume = high_transition_volume
         self.client_idx = client_idx
 
         # this is the stress parameter
@@ -1348,7 +1354,7 @@ class StressTask(LatentModule):
                 while self.disabled:
                     # do not enter a high-stres period while we're still disabled
                     self.sleep(1)
-                # and generally skip forward to the slow-stress period after the pause
+                    # and generally skip forward to the slow-stress period after the pause
                 continue
 
             # enter a high stress period
@@ -1357,12 +1363,7 @@ class StressTask(LatentModule):
             self.stress_level = self.high_stress_value
             duration = self.high_stress_duration()
             self.marker('State/Stress Level/%f, Participant/ID/%i' % (self.stress_level,self.client_idx))
-            self.sleep(duration)            
-
-
-
-
-
+            self.sleep(duration)
 
 
 class IndicatorLightTask(LatentModule):
@@ -1402,7 +1403,7 @@ class IndicatorLightTask(LatentModule):
                  pic_tick_off = None,                           # optional blinking in off status
                  pic_tick_on = None,                            # optional blinking in on status
                  tick_rate = None,                              # tick rate (duration in non-tick status, duration in tick status)
-                 ):
+    ):
 
         LatentModule.__init__(self)
         self.scorecounter = scorecounter
@@ -1471,8 +1472,8 @@ class IndicatorLightTask(LatentModule):
 
         # set up an event watcher (taking care of timeouts and inappropriate responses)
         self.watcher = EventWatcher.EventWatcher(defaultevent=self.response_key,
-                                                 handleduration=self.timeout,
-                                                 defaulthandler=self.on_false_detection)
+            handleduration=self.timeout,
+            defaulthandler=self.on_false_detection)
 
     @livecoding
     def off_condition(self):
@@ -1580,14 +1581,14 @@ class CommTask(LatentModule):
                  other_callsign_fraction = lambda: random.uniform(0.45,0.55),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
                  no_callsign_fraction = lambda: random.uniform(0.05,0.10),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
                  time_fraction_until_questions = lambda: random.uniform(0.05,0.15), # the fraction of time into the situation until the first question comes up (drawn per situation)
-                                                                                    # in the tutorial mode, this should probably be close to zero
+                 # in the tutorial mode, this should probably be close to zero
                  questioned_fraction = lambda: random.uniform(0.6,0.8),             # fraction of targeted messages that incur questions
                  post_timeout_silence = lambda: random.uniform(1,3),                # radio silence after a timeout of a question has expired (good idea or not?)
 
                  # response control
                  response_timeout = 6,                      # response timeout...
                  lock_duration = lambda:random.uniform(7,9),# minimum/maximum duration for which the query presenter is locked
-                 loss_incorrect=-3,                         # amount of loss incurred when incorrectly answering
+                 loss_incorrect=-2,                         # amount of loss incurred when incorrectly answering
                  gain_correct=2,                            # amount of reward gained when answering correctly
                  loss_skipped=-1,                           # amount of loss incurred when admitting a miss
                  loss_missed=-2,                            # amount of loss incurred when missing the question (and basically the sentence, too)
@@ -1602,7 +1603,7 @@ class CommTask(LatentModule):
                  querydomain='auditory',                    # the domain in which queries should be issued
                  scoredomain='auditory',                    # the domain in which the scores should be counted
                  stimulusdomain = 'auditory'                # the domain in which stimuli appear (this is a HED domain)
-                 ):
+    ):
 
         LatentModule.__init__(self)
         self.presenterfunc = presenterfunc
@@ -1652,7 +1653,7 @@ class CommTask(LatentModule):
         self.stimulusdomain.capitalize()
         if self.targetsign in self.callsigns:
             self.callsigns.remove(self.targetsign)
-        # log all parameters to LSL
+            # log all parameters to LSL
         self.log_setup_parameters()
 
         self.sleep(self.message_interval())
@@ -1684,9 +1685,11 @@ class CommTask(LatentModule):
                     self.questions.append(parts[1].strip())
                     resp = parts[2].strip().split(' ')
                     if resp == ['y']:
-                        resp = ['yes','no']
+                        resp = ['yes','no','unclear']
                     if resp == ['n']:
-                        resp = ['no','yes']
+                        resp = ['no','yes','unclear']
+                    if resp == ['u']:
+                        resp = ['unclear','yes','no']
                     self.responses.append(resp)
                 except:
                     pass
@@ -1829,7 +1832,7 @@ class CommTask(LatentModule):
 
 
 
-class SatmapTask(BasicStimuli):    
+class SatmapTask(BasicStimuli):
     """ 
     This class initiates and update of the satellite map content whenever the update() function is called.
     A fraction of the stimuli that have dissappeared last come with associated queries that go through the query presenter.
@@ -1845,6 +1848,9 @@ class SatmapTask(BasicStimuli):
                  client_idx,                                    # index of the responsible participant
 
                  local_scenegraph,                              # the local world scene graph (used for item placement criteria)
+
+                 buttonbar_color,                               # the button bar for color responses
+                 buttonbar_direction,                           # the button bar for direction responses
 
                  icons_file='icons_with_labels.txt',            # source file containing a list of sounds and associated queries, as well as correct/incorrect responses
                  distractor_fraction = 0.4,                     # fraction of distractor events on the satmap (no question asked) (was 0.7)
@@ -1868,7 +1874,11 @@ class SatmapTask(BasicStimuli):
                  constrain_placement=True,                      # whether to constrain the item placement based on city geometry
                  avoid_repetitions=True,                        # whether to avoid repeatedly displaying the same type of item
                  satmap_max_retries=100,                        # max number of retries when attempting to find a valid position to create an item position (on a street)
-                 ):
+                 buttonbar_flash_color=(1,0.1,0.1,1),           # color of the button bar while flashed
+                 buttonbar_normal_color=(0.8,0.8,0.8,1),        # color of the button bar when back to normal
+                 buttonbar_flash_duration=3,                    # duration of the button-bar flash
+                 use_buttonflash=True,                          # whether to use the flashing button bar
+    ):
         BasicStimuli.__init__(self)
         self.querypresenter = querypresenter
         self.scorecounter = scorecounter
@@ -1878,10 +1888,10 @@ class SatmapTask(BasicStimuli):
         self.icons_file = icons_file
         self.angular_ambiguity_zone =angular_ambiguity_zone
         self.distractor_fraction = distractor_fraction
-        self.color_question_fraction = color_question_fraction 
+        self.color_question_fraction = color_question_fraction
         self.changes_per_cycle = changes_per_cycle
         self.satmap_coverage = satmap_coverage
-        self.lock_duration = lock_duration 
+        self.lock_duration = lock_duration
         self.onset_delay = onset_delay
         self.response_timeout = response_timeout
         self.focused = focused
@@ -1899,6 +1909,12 @@ class SatmapTask(BasicStimuli):
         self.constrain_placement = constrain_placement
         self.avoid_repetitions = avoid_repetitions
         self.satmap_max_retries = satmap_max_retries
+        self.buttonbar_color = tuple(buttonbar_color)
+        self.buttonbar_direction = tuple(buttonbar_direction)
+        self.buttonbar_flash_color = buttonbar_flash_color
+        self.buttonbar_normal_color = buttonbar_normal_color
+        self.buttonbar_flash_duration = buttonbar_flash_duration
+        self.use_buttonflash = use_buttonflash
 
         # load the actual media
         self.filenames = []     # icons with associated queries
@@ -1930,8 +1946,9 @@ class SatmapTask(BasicStimuli):
 
         self.log_setup_parameters()
 
+        # cache a few remote procedure calls
         self.satmap_icon_remover_func = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo)
-
+        self.button_flasher = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.flash_objects)
 
     @livecoding
     def update(self,centerpos=(0,0,0)):
@@ -1967,14 +1984,19 @@ class SatmapTask(BasicStimuli):
                     self.marker('Experiment Control/Task/Satellite Map/Remove Icon/{identifier:%i|label:%s}, Participant/ID/%i'% (self.current_questions[idx].identifier, self.current_questions[idx].label, self.client_idx))
 
                     if self.focused and (random.random() > self.distractor_fraction):
+                        delay = self.onset_delay()
+                        question = self.current_questions[idx]
+                        if self.use_buttonflash:
+                            taskMgr.doMethodLater(delay,self.flash_button_bar,'FlashButtonBar',extraArgs=[question.category], appendTask=True)
+
                         # present the associated query
                         self.querypresenter.submit_question(
-                            question = self.current_questions[idx],
+                            question = question,
                             querydomain = self.querydomain,
                             scoredomain = self.scoredomain,
                             lock_duration = self.lock_duration,
                             response_timeout = self.response_timeout,
-                            onset_delay = self.onset_delay(),
+                            onset_delay = delay,
                             loss_incorrect = self.loss_incorrect,
                             gain_correct = self.gain_correct,
                             loss_skipped = self.loss_skipped,
@@ -2055,14 +2077,15 @@ class SatmapTask(BasicStimuli):
             # pre-determine the question to be asked (if we ask it) and the correct answer.
             if random.random() < self.color_question_fraction:
                 # ask a color question
-                question = StimulusQuestion(category="color",phrase="What was the color of the last " + label + '?',
+                question = StimulusQuestion(category="color",phrase="" if self.use_buttonflash else ("What was the color of the last " + label + '?'),
                     correct_answer=color,all_answers=self.item_colors.keys(),label=label,client_idx=self.client_idx)
             else:
                 # ask a direction question
-                question = StimulusQuestion(category="compass",phrase="What was the direction of the last " + label + '?',
+                question = StimulusQuestion(category="direction",phrase="" if self.use_buttonflash else ("What was the direction of the last " + label + '?'),
                     correct_answer=direction,all_answers=['north','south','east','west'],label=label,client_idx=self.client_idx)
 
             # generate the picture instance
+            #noinspection PyUnboundLocalVariable
             icon = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo)(
                 image=filename, scale=self.item_scale, position=pos,color=self.item_colors[color], parent=self.scenegraph, camera_mask=(3,4))
             # issue stimulus presentation marker
@@ -2074,6 +2097,16 @@ class SatmapTask(BasicStimuli):
             self.current_questions.append(question)
 
             self.previous_label = label
+
+    def flash_button_bar(self,category,task):
+        """ Flash one of the two button bars depending on the question category. """
+        self.button_flasher(
+            objects=self.buttonbar_color if category == "color" else self.buttonbar_direction,
+            flash_color=self.buttonbar_flash_color,
+            normal_color=self.buttonbar_normal_color,
+            duration=self.buttonbar_flash_duration,
+            property_name='frameColor')
+
 
 
 class SoundTask(LatentModule):
@@ -2090,13 +2123,13 @@ class SoundTask(LatentModule):
 
                  # timing control
                  sound_interval = lambda: random.uniform(10,18),# interval between sound events
-                 lock_duration = (7,9),                         # duration for which the query presenter is blocked by sound-queries
+                 lock_duration = (6,8),                         # duration for which the query presenter is blocked by sound-queries
                  onset_delay = lambda: random.uniform(2,4),     # onset delay of the sound-related queries
-                 response_timeout = 7,                          # response timeout for the queries
+                 response_timeout = 6,                          # response timeout for the queries
                  focused = False,                               # whether this scheduler is currently focused
 
                  # scoring
-                 loss_incorrect=-3,                             # amount of loss incurred when incorrectly answering
+                 loss_incorrect=-2,                             # amount of loss incurred when incorrectly answering
                  gain_correct=2,                                # amount of reward gained when answering correctly
                  loss_skipped=-1,                               # amount of loss incurred when admitting a miss
                  loss_missed=-2,                                # amount of loss incurred when missing the question (and basically the sentence, too)
@@ -2108,13 +2141,14 @@ class SoundTask(LatentModule):
                  sound_volume = 0.5,                            # volume modifier of the sounds
                  querydomain='auditory',                        # domain where the query shall be presented
                  scoredomain='auditory',                        # the domain in which the scores should be counted
-                 ):
+                 probe_sound='sounds/xWhoopFlp.wav',            # optionally a sound file in lieu of the question
+    ):
 
         LatentModule.__init__(self)
         self.querypresenter = querypresenter
         self.stimpresenter = stimpresenter if stimpresenter is not None else self
         self.sounds_file = sounds_file
-        self.distractor_fraction = distractor_fraction 
+        self.distractor_fraction = distractor_fraction
         self.sound_interval = sound_interval
         self.lock_duration = lock_duration
         self.onset_delay = onset_delay
@@ -2130,6 +2164,7 @@ class SoundTask(LatentModule):
         self.sounds_file = sounds_file
         self.querydomain = querydomain
         self.scoredomain = scoredomain
+        self.probe_sound = probe_sound
 
         self.filenames = []     # icons with associated label
         self.labels = []        # labels about those icons
@@ -2173,7 +2208,7 @@ class SoundTask(LatentModule):
             label = self.labels[soundidx]
 
             # pre-compute the associated question
-            question = StimulusQuestion(category="sound_direction", phrase="What was the direction of the last " + label + ' sound?',
+            question = StimulusQuestion(category="sound_direction", phrase=self.probe_sound if self.probe_sound else ("What was the direction of the last " + label + ' sound?'),
                 correct_answer=direction, all_answers=self.sound_directions.keys(),label=label, client_idx = self.client_idx)
 
             # emit the sound and onset marker
@@ -2219,7 +2254,7 @@ class ProbedObjectsTask(LatentModule):
                      color,             # color word
                      label,             # object label (e.g. "chair")
                      removers,          # list of functions to remove the node when done
-                     ):
+        ):
             self.pos = pos
             self.color = color
             self.label = label
@@ -2233,7 +2268,7 @@ class ProbedObjectsTask(LatentModule):
             self.has_been_invisible_since = [None]*len(self.removers)         # has consistently been strictly invisible since this point in time
             self.excluded_from_questions = [False]*len(self.removers)         # whether this entity is excluded from generating questions (e.g. due to potential ambiguity or since it was a distractor)
             self.last_visible_side = [None]*len(self.removers)                # this is 'left' or 'right' depending on where the entity was last visible (in the subject's fov) 
-            self.is_visible = [False]*len(self.removers)                       # whether this entity is currently visible 
+            self.is_visible = [False]*len(self.removers)                      # whether this entity is currently visible
 
     @livecoding
     def __init__(self,
@@ -2247,11 +2282,11 @@ class ProbedObjectsTask(LatentModule):
                  physics,                                   # a bullet physics world to enforce line-of-sight constraints
                  display_scenegraphs,                       # the scene graphs to which the objects should be added (the 0th graph is the local graph
                  display_funcs,                             # the functions to display the instances (signature-compatible with create_worldspace_instance),
-                                                            # a list of pairs (first one is the constructor, second one the destructor)
+                 # a list of pairs (first one is the constructor, second one the destructor)
                  display_engines,                           # engine instances to load the models...
 
                  active_agents = None,                      # list of indices of agents for whom to update items and generate questions (default: range(len(agents)))
-                                                            # can be updated at runtime by modifying self.active_agents
+                 # can be updated at runtime by modifying self.active_agents
 
                  # source content
                  item_file = 'objects_with_labels.txt',     # the list of map objects to scatter on sidewalks
@@ -2282,7 +2317,7 @@ class ProbedObjectsTask(LatentModule):
                  ask_after = 2,                              # object must have been outside the viewcone for this many seconds to generate a question (and stayed in this status)
                  ask_relative_movement = 1,                  # object must be moving away from agent at at least this relative speed (i.e., merely turning away does not trigger a question)    
                  drop_candidate_after = 6,                   # drop an object from potential candidacy if it has stayed outside the inner viewcone for this many seconds
-                                                             # (note: no question will be asked if there is at least one more candidate of the same object category)
+                 # (note: no question will be asked if there is at least one more candidate of the same object category)
                  # question details
                  distractor_fraction = 0.4,                 # probability of a candidate event triggering no question (= a distractor)
                  color_question_fraction = 0.0,              # fraction of questions that is about object color rather than side
@@ -2305,7 +2340,7 @@ class ProbedObjectsTask(LatentModule):
                  # misc
                  querydomain='visual',                       # domain where the query shall be presented
                  scoredomain='visual',                       # the domain in which the scores should be counted
-                 ):
+    ):
 
         LatentModule.__init__(self)
         self.focused = [False,False]                         # replicate initial focused state for each agent
@@ -2315,9 +2350,9 @@ class ProbedObjectsTask(LatentModule):
         self.display_scenegraphs = display_scenegraphs
         self.display_engines = display_engines
         self.display_funcs = display_funcs
-        self.scenegraph = scenegraph 
+        self.scenegraph = scenegraph
         self.navmesh = navmesh
-        self.physics = physics 
+        self.physics = physics
 
         self.item_file = item_file
         self.item_colors = item_colors
@@ -2402,7 +2437,7 @@ class ProbedObjectsTask(LatentModule):
             agent_positions = []
             for i in range(len(self.agents)):
                 agent_positions.append(self.agents[i].getPos(self.scenegraph))
-            # also get their view cones
+                # also get their view cones
             agent_viewdirs = []
             for i in range(len(self.agents)):
                 tmpdir = self.agents[i].getParent().getMat(self.scenegraph).getRow(1)
@@ -2452,7 +2487,7 @@ class ProbedObjectsTask(LatentModule):
             else:
                 # from the non-reportable set
                 label = random.choice(list(set(self.labels).difference(set(self.reportable_objects))))
-            # pick a random color
+                # pick a random color
             color = random.choice(self.item_colors.keys())
 
             # add it to the display scene graphs (keeping track of them in scene_instances)
@@ -2514,7 +2549,7 @@ class ProbedObjectsTask(LatentModule):
                     if time.time() - ent.has_been_clearly_visible_since[a] > self.candidate_visible_duration and not ent.has_generated_question[a] and not ent.is_candidate[a]:
                         self.marker('Experiment Control/Task/Sidewalk Items/Becomes Question Candidate/{identifier:%i}, Participants/ID/%i' % (ent.identifier,a))
                         ent.is_candidate[a] = True
-                    # calculate on what side the stimulus was last sighted
+                        # calculate on what side the stimulus was last sighted
                     diff = Vec3(ent.pos - apos)
                     if diff.normalize():
                         ent.last_visible_side[a] = 'left' if agent_viewdirs[a].signedAngleDeg(diff,Vec3(0,0,1)) > 0 else 'right'
@@ -2684,12 +2719,12 @@ class WanderingAgent(BasicStimuli):
                  jump_height = 0.5,         # jump height, in meters
 
                  box_constraint = None,     # box constraints for agent movement ((minx,maxx),(miny,maxy),(minz,maxz))
-                 ):
+    ):
         BasicStimuli.__init__(self)
         self.crowd = crowd
         self.physics = physics
         self.surfacegraph = surfacegraph
-        self.valid_surfaces = valid_surfaces  
+        self.valid_surfaces = valid_surfaces
         self.mesh = crowd.nav
         self.maxspeed = maxspeed
         self.wander = wander
@@ -2843,7 +2878,7 @@ class InvadingAgent(BasicStimuli):
                  # spawn control
                  spawn_pos=None,            # center position where to spawn the agent
                  jitter=300,                # maximum radius around the center position
-                 ):
+    ):
         BasicStimuli.__init__(self)
 
         self.crowd = crowd
@@ -2969,7 +3004,7 @@ class InvadingAgent(BasicStimuli):
         else:
             if self.vel.length() <= 0.001:
                 # reached the goal...
-                if self.mode == "retreating": 
+                if self.mode == "retreating":
                     if random.random() < self.enter_building_probability:
                         self.enter_towards_building()
                     else:
@@ -3030,7 +3065,7 @@ class InvadingAgent(BasicStimuli):
                     # also make sure that the point is not in the LOS of the object which spotted this agent (if any)
                     if line_of_sight(self.bulletworld,spotter_pos,pnt) is not None:
                         continue
-                    # found a valid position
+                        # found a valid position
                 return meshloc_detour
 
 
@@ -3062,7 +3097,7 @@ class SmartGizmo(BasicStimuli):
                  gizmo_name='',          # name of the gizmo for marker purposes (no markers if empty)
                  sat_scale=None,         # optionally the scale on the satellite map (overrides global scale)
                  cam_scale=None          # optionally the scale on the cam viewport (overrides global scale)
-                 ):
+    ):
         BasicStimuli.__init__(self)
 
         self.display_scenegraphs = display_scenegraphs
@@ -3163,7 +3198,7 @@ class SmartGizmo(BasicStimuli):
                     rpyc.async(self.sat_gizmos[k].setColor)(1,1,1,0)
                 else:
                     rpyc.async(self.sat_gizmos[k].setColor)(1,1,1,self.opacity)
-            # implement clamping
+                # implement clamping
             if self.clamp_boxes[k]:
                 clamppos = (clamp(self.pos[0],self.clamp_boxes[k][0],self.clamp_boxes[k][1]),
                             clamp(self.pos[1],self.clamp_boxes[k][2],self.clamp_boxes[k][3]),
@@ -3254,13 +3289,13 @@ class SceneBase(LatentModule):
 
         # load the model for the hostile agents
         self.hostile_model = rpyc.enable_async_methods(self._engine.base.loader.loadModel(self.hostile_filename))
-        self.hostile_model.setScale(self.hostile_scale) 
+        self.hostile_model.setScale(self.hostile_scale)
         self.hostile_model.setPos(0,0,self.hostile_height)
 
         # load the model for the friendly agents
         self.friendly_model = rpyc.enable_async_methods(self._engine.base.loader.loadModel(self.friendly_filename))
-        self.friendly_model.setScale(self.friendly_scale) 
-        self.friendly_model.setPos(0,0,self.friendly_height)         
+        self.friendly_model.setScale(self.friendly_scale)
+        self.friendly_model.setPos(0,0,self.friendly_height)
 
         # load the city model
         if modelname is not None:
@@ -3374,7 +3409,7 @@ class ClientGame(SceneBase):
                  master,         # the master module (Main)
                  num,            # sequence number of this client (0 or 1)
                  initial_score=0 # initial score of the client
-                 ):
+    ):
         """ Init the client game session."""
         SceneBase.__init__(self)
         self.master = master                                # reference to the local game master
@@ -3451,21 +3486,25 @@ class ClientGame(SceneBase):
         # overall button parameters
         self.button_framesize = (-1.5,1.5,-0.65*1.5+0.25,0.65*1.5+0.25) # size of the buttons (xmin,xmax,ymin,ymax)
         self.button_scale = 0.07*0.8                                    # scale of the buttons (scales the framesize, too)
+        self.button_text_scale = (0.85,0.85)
 
         # response buttons for satmap task (right outer screen)
         self.right_button_colors = ['red','green','blue','yellow']        # labels for the color buttons
         self.right_button_directions = ['west','north','south','east']    # labels for the direction buttons
         self.right_button_x_offsets = [grid(3,(1,5)),grid(3,(2,5)),grid(3,(3,5)),grid(3,(4,5))]   # x offsets for the buttons, in aspect2d coordinates
         self.right_button_y_offsets = [grid(3,(),(9,10),ma=0.0125), grid(3,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
-        self.right_button_skip_pos = grid(3,(5,5),(5,5))
-        self.right_button_skip_framesize = (-1.5*0.8,1.5*0.8,-1.5*1.4+0.25,1.5*1.4+0.25)  # size of the buttons (xmin,xmax,ymin,ymax)
-        self.right_button_skip_scale = 0.07                                               # scale of the buttons (scales the framesize, too)
 
         # response buttons for the driving / object reporting and text comprehension tasks (left outer screen)
-        self.left_button_sides = ['left','right','report']          # labels for the street side buttons
-        self.left_button_yesno = ['yes','no','skip']                # labels for the yes/no buttons
+        self.left_button_sides = ['left','center','right']                # labels for the street side buttons
+        self.left_button_yesno = ['yes','no','unclear']                   # labels for the yes/no buttons
         self.left_button_x_offsets = [grid(1,(2,5)),grid(1,(3,5)),grid(1,(4,5))] # x offsets for the buttons, in aspect2d coordinates
-        self.left_button_y_offsets = [grid(3,(),(9,10),ma=0.0125),grid(3,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
+        self.left_button_y_offsets = [grid(1,(),(9,10),ma=0.0125),grid(1,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
+
+        # skip buttons
+        self.right_button_skip_pos = grid(3,(5,5),(5,5))
+        self.left_button_skip_pos = grid(1,(1,5),(5,5))
+        self.button_skip_framesize = (-1.5*0.8,1.5*0.8,-1.5*1.4+0.25,1.5*1.4+0.25)  # size of the buttons (xmin,xmax,ymin,ymax)
+        self.button_skip_scale = 0.07                                               # scale of the buttons (scales the framesize, too)
 
         # subtask argument overrides
         self.overall_score_args = {# display params                 # arguments for the overall score counter
@@ -3474,20 +3513,20 @@ class ClientGame(SceneBase):
                                    'initial_score':100,             # the initial score
                                    'maximum_level':200,             # this is the highest level that can be graphically indicated
                                    'critical_level':50              # for completeness (lockdown doesn't apply to overall score)
-                                   }
+        }
         self.satmap_score_args = {# display params                  # arguments for the satmap task score counter
-                                   'bar_rect':rect(grid(3,(2,5),(2,10),'topleft',ma=0.0125),grid(3,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
-                                   # score parameters are scaled down a bit
-                                   'initial_score':33,              # the initial score
-                                   'maximum_level':66,              # this is the highest level that can be graphically indicated
-                                   'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
-                                 }
-        self.viewport_score_args = {# display params                # arguments for the viewport tasks score counter
-                                  'bar_rect':rect(grid(2,(2,5),(2,10),'topleft',ma=0.0125),grid(2,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
+                                  'bar_rect':rect(grid(3,(2,5),(2,10),'topleft',ma=0.0125),grid(3,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
                                   # score parameters are scaled down a bit
-                                  'initial_score':33,               # the initial score
-                                  'maximum_level':66,               # this is the highest level that can be graphically indicated
-                                  'critical_level':15               # for completeness (lockdown doesn't apply to overall score)
+                                  'initial_score':33,              # the initial score
+                                  'maximum_level':66,              # this is the highest level that can be graphically indicated
+                                  'critical_level':15              # for completeness (lockdown doesn't apply to overall score)
+        }
+        self.viewport_score_args = {# display params                # arguments for the viewport tasks score counter
+                                    'bar_rect':rect(grid(2,(2,5),(2,10),'topleft',ma=0.0125),grid(2,(4,5),(2,10),'bottomright',ma=0.0125)),  # rectangle for the score display bar
+                                    # score parameters are scaled down a bit
+                                    'initial_score':33,               # the initial score
+                                    'maximum_level':66,               # this is the highest level that can be graphically indicated
+                                    'critical_level':15               # for completeness (lockdown doesn't apply to overall score)
         }
         self.sound_score_args = {# display params                   # arguments for the sound score counter
                                  'bar_rect':rect(grid(1,(2,10),(3,10),'topleft',ma=0.0125),grid(1,(5,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
@@ -3497,11 +3536,11 @@ class ClientGame(SceneBase):
                                  'critical_level':15                # for completeness (lockdown doesn't apply to overall score)
         }
         self.audiocomm_score_args = {# display params               # arguments for the audio comms score counter
-                                    'bar_rect':rect(grid(1,(6,10),(3,10),'topleft',ma=0.0125),grid(1,(9,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
-                                    # score parameters are scaled down a bit
-                                    'initial_score':33,             # the initial score
-                                    'maximum_level':66,             # this is the highest level that can be graphically indicated
-                                    'critical_level':15             # for completeness (lockdown doesn't apply to overall score)
+                                     'bar_rect':rect(grid(1,(6,10),(3,10),'topleft',ma=0.0125),grid(1,(9,10),(3,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
+                                     # score parameters are scaled down a bit
+                                     'initial_score':33,             # the initial score
+                                     'maximum_level':66,             # this is the highest level that can be graphically indicated
+                                     'critical_level':15             # for completeness (lockdown doesn't apply to overall score)
         }
         self.textcomm_score_args = {# display params                # arguments for the text comms score counter
                                     'bar_rect':rect(grid(1,(2,5),(4,10),'topleft',ma=0.0125),grid(1,(4,5),(4,10),'bottomright',ma=0.0125)), # rectangle for the score display bar
@@ -3516,17 +3555,17 @@ class ClientGame(SceneBase):
         self.warning_light_args = {# presentation params    # arguments for the warning light task
                                    'pic_params':{'pos':self.warn_pos,'scale':self.warn_size}, # parameters for the picture() command
                                    'snd_params':{'volume':0.3,'direction':0.0},   # parameters for the sound command
-                                   }
+        }
         self.text_comm_task_args = {}                       # arguments for the textual communications task
         self.audio_comm_task_args = {                      # arguments for the audio communications task
-                                    'response_timeout':9,                           # using more generous timeouts here since speech takes a while
-                                    'lock_duration': lambda:random.uniform(9,11),
-        }
+                                                           'response_timeout':9,                           # using more generous timeouts here since speech takes a while
+                                                           'lock_duration': lambda:random.uniform(9,11),
+                                                           }
         self.satmap_task_args = {}                          # arguments for the satellite map task
         self.sound_task_args = {# diable one of the channels # arguments for the sound task
                                 # 'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
-                                'sound_directions' : {'left':-1, 'right':1}
-                                }
+                                'sound_directions' : {'left':-1, 'center':0, 'right':1}
+        }
         self.attention_set_args = {}                        # arguments for the attention set management
 
         # --- local gamestate ---
@@ -3669,30 +3708,38 @@ class ClientGame(SceneBase):
     def init_touch_buttons(self):
         """ Initialize touch-screen response buttons. """
         self.buttons = []
+        self.buttons_direction = []
+        self.buttons_color = []
         # add color buttons
         for x in range(len(self.right_button_x_offsets)):
-            self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
+            self.buttons_color.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
                 command=rpyc.async(self.on_button),extraArgs=[self.right_button_colors[x]],rolloverSound=None,clickSound=None,
-                pos=(self.right_button_x_offsets[x],0,self.right_button_y_offsets[0]),frameSize=self.button_framesize,text=self.right_button_colors[x],scale=self.button_scale)))
+                pos=(self.right_button_x_offsets[x],0,self.right_button_y_offsets[0]),frameSize=self.button_framesize,text=self.right_button_colors[x],scale=self.button_scale,text_scale=self.button_text_scale)))
         # add direction buttons
         for x in range(len(self.right_button_x_offsets)):
-            self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
+            self.buttons_direction.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
                 command=rpyc.async(self.on_button),extraArgs=[self.right_button_directions[x]],rolloverSound=None,clickSound=None,
-                pos=(self.right_button_x_offsets[x],0,self.right_button_y_offsets[1]),frameSize=self.button_framesize,text=self.right_button_directions[x],scale=self.button_scale)))
+                pos=(self.right_button_x_offsets[x],0,self.right_button_y_offsets[1]),frameSize=self.button_framesize,text=self.right_button_directions[x],scale=self.button_scale,text_scale=self.button_text_scale)))
         # add skip button
         self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
             command=rpyc.async(self.on_button),extraArgs=['skip'],rolloverSound=None,clickSound=None,
-            pos=(self.right_button_skip_pos[0],0,self.right_button_skip_pos[1]),frameSize=self.right_button_skip_framesize,text='skip',scale=self.right_button_skip_scale)))
-        # add left/right/report buttons
+            pos=(self.right_button_skip_pos[0],0,self.right_button_skip_pos[1]),frameSize=self.button_skip_framesize,text='skip',scale=self.button_skip_scale,text_scale=self.button_text_scale)))
+
+        # add left/center/right buttons
         for x in range(len(self.left_button_x_offsets)):
             self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
                 command=rpyc.async(self.on_button),extraArgs=[self.left_button_sides[x]],rolloverSound=None,clickSound=None,
-                pos=(self.left_button_x_offsets[x],0,self.left_button_y_offsets[0]),frameSize=self.button_framesize,text=self.left_button_sides[x],scale=self.button_scale)))
-        # add yes/no/skip buttons
+                pos=(self.left_button_x_offsets[x],0,self.left_button_y_offsets[0]),frameSize=self.button_framesize,text=self.left_button_sides[x],scale=self.button_scale,text_scale=self.button_text_scale)))
+        # add yes/no/unclear buttons
         for x in range(len(self.left_button_x_offsets)):
             self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
                 command=rpyc.async(self.on_button),extraArgs=[self.left_button_yesno[x]],rolloverSound=None,clickSound=None,
-                pos=(self.left_button_x_offsets[x],0,self.left_button_y_offsets[1]),frameSize=self.button_framesize,text=self.left_button_yesno[x],scale=self.button_scale)))
+                pos=(self.left_button_x_offsets[x],0,self.left_button_y_offsets[1]),frameSize=self.button_framesize,text=self.left_button_yesno[x],scale=self.button_scale,text_scale=self.button_text_scale)))
+        # add skip button
+        self.buttons.append(rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
+            command=rpyc.async(self.on_button),extraArgs=['skip'],rolloverSound=None,clickSound=None,
+            pos=(self.left_button_skip_pos[0],0,self.left_button_skip_pos[1]),frameSize=self.button_skip_framesize,text='skip',scale=self.button_skip_scale,text_scale=self.button_text_scale)))
+
         # add invisible warning light button
         btn = rpyc.enable_async_methods(self._engine.direct.gui.DirectButton.DirectButton(
             command=rpyc.async(self.send_message),extraArgs=['space-'+self.tag+'-down'],rolloverSound=None,clickSound=None,
@@ -3706,17 +3753,17 @@ class ClientGame(SceneBase):
         """ Start the side tasks for this client. """
 
         # create various score counters
-        self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
+        self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
             counter_name='Overall', client_idx=self.num, bar_vertical_squish=1, **self.overall_score_args)
-        self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
+        self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
             counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.satmap_score_args)
-        self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
+        self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
             counter_name='Viewport', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.viewport_score_args)
-        self.text_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
+        self.text_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
             counter_name='Text', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.textcomm_score_args)
-        self.audio_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
+        self.audio_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
             counter_name='Chatter', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.audiocomm_score_args)
-        self.sounds_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog, 
+        self.sounds_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
             counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.sound_score_args)
 
         # a stress modulation process (flips between high and low stress, keeps an indicator icon updated) 
@@ -3786,6 +3833,8 @@ class ClientGame(SceneBase):
             engine = self._engine,
             scenegraph = self.city,
             local_scenegraph = self.master.city,
+            buttonbar_color = self.buttons_color,
+            buttonbar_direction = self.buttons_direction,
             util = self,
             client_idx = self.num,
             focused = False,
@@ -3890,18 +3939,18 @@ class ClientGame(SceneBase):
             # update the checkpoint clamping
             if self.master.checkpoint:
                 self.master.checkpoint.update_satmap_clamp_box(self.num,clampbox)
-            # update the position and clamping of the agent gizmos
+                # update the position and clamping of the agent gizmos
             for k in range(len(self.master.agents)):
                 gizmo = self.master.agent_gizmos[k]
                 gizmo.update_satmap_clamp_box(self.num,clampbox)
                 pos = self.master.agents[k].getPos(self.master.city)
                 hpr = self.master.agents[k].getParent().getHpr(self.master.city)
                 gizmo.move_to((pos.getX(),pos.getY(),pos.getZ()+100),(0,-90,180-hpr.getX()))
-            # update the satmap task
+                # update the satmap task
             self.satmap_task.update(self.master.agents[self.num].getPos(self.master.city))
         return task.again
 
-    def update_terrain():
+    def update_terrain(self):
         xyz = self.agents[self.num].getPos(self.terrain_root)
         rpyc.async(self.terrain.setFocalPoint)(xyz.getX(),xyz.getY())
         rpyc.async(self.terrain.update)()
@@ -3949,7 +3998,7 @@ class ClientGame(SceneBase):
         if not self.master.nowait:
             self.write("Welcome. You are player " + self.id + ".\nPress the Space bar when your are ready to begin.", 'space-cl' + str(self.num) + '-up')
             self.write("Now waiting for the other player to check in...",'all-checkedin')
-        # wait until terminated
+            # wait until terminated
         self.sleep(max_duration)
 
 
@@ -4014,7 +4063,7 @@ class Main(SceneBase):
         """
         Initialize the module: called by the SNAP framework.
         All configuration variables set here can be overridden afterwards via study configuration (.cfg) files.
-        """        
+        """
         SceneBase.__init__(self)
 
         # setup variables
@@ -4082,7 +4131,7 @@ class Main(SceneBase):
         self.brake_force = 10                                   # force of the brakes
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
-                                                                # to narrow steering range at higher speeds
+        # to narrow steering range at higher speeds
         self.vehicle_upper_speed = 40                           # in kilometers per hour -- this is where the engine starts to top out
         self.vehicle_top_speed = 50                             # in kilometers per hour -- the engine cannot accelerate beyond this
         self.friendly_field_of_view = 90.0                      # the field of view of the agents
@@ -4127,7 +4176,7 @@ class Main(SceneBase):
         self.rise_time = 5                                      # time it takes a drone to ramp up the rising force from 0 to max
         self.rise_altitude = 175                                # desired altitude below to which the vehicle exerts rising force
         self.rise_force = 0                                     # the current rising force (per meter of discrepancy between current altitude and desired altitude) 
-                                                                # (ramped up from 0 to max during the rise_time)
+        # (ramped up from 0 to max during the rise_time)
         self.rise_force_max = 4                                 # maximum rising force (per meter... -- see above)
         self.rise_force_offset = 0                              # the current offset to the rising force (ramped up from 0 to max during the rise_time)
         self.rise_force_offset_max = 100                        # maximum offset of the rising force 
@@ -4175,11 +4224,11 @@ class Main(SceneBase):
         self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
         self.double_report_cutoff = 15                          # if an agent is being reported within shorter succession than this many seconds it counts as a double report
         self.potentially_visible_cutoff = 3                     # if an agent was potentially visible for longer than this, and has not been reported before it went away
-                                                                # we count this as a miss
+        # we count this as a miss
         self.short_hide_cutoff = 15                             # if an agent was hidden but was still visible less than this many seconds ago we count that as
-                                                                # as a reappearance after a short hide, not a full re-encounter
+        # as a reappearance after a short hide, not a full re-encounter
         self.short_spotting_cutoff = 1.5                        # if an agent was on camera for less than this duration we count that as a short spotting, which gives
-                                                                # less penalty when not reported (than if it was missed despite being in plain view for long enough)
+        # less penalty when not reported (than if it was missed despite being in plain view for long enough)
         self.fendoff_distance = 25                              # in secure-the-perimeter, if an invader is closer than this and has eye contact with a player, it will automatically retreat (no honking necessary)
         self.warn_distance = 50                                 # in secure-the-perimeter, this is the distance within which invaders in field-fov-view respond to the warn-off button
         self.use_manual_checkpoints = False                     # use manually placed checkpoints if present in the map
@@ -4188,7 +4237,7 @@ class Main(SceneBase):
 
         # response logic
         self.max_same_modality_responses = 15                   # if subject responds more than this many times in a row in the same modality
-                                                                # (either speech or button) he/she gets a penalty
+        # (either speech or button) he/she gets a penalty
         self.repeated_response_loss = -2                        # loss incurred by too many repeats
         self.repeated_response_penalty_sound = 'slap.wav'       # sound that comes with this type of penalty
         self.repeated_response_penalty_volume = 0.3             # volume of the penalty sound
@@ -4289,7 +4338,8 @@ class Main(SceneBase):
 
         # start the side/overlay tasks
         self.init_subtasks()
-        self.marker('Experiment Control/Sequence/Experiment Begins')        
+        self.marker('Experiment Control/Sequence/Experiment Begins')
+
         # for each experiment block b
         for b in range(self.num_blocks):
             # play back the current block 
@@ -4305,8 +4355,8 @@ class Main(SceneBase):
     @livecoding
     def init_window(self):
         """ Initialize window properties. """
-        winprops = WindowProperties() 
-        winprops.setTitle('LSE GameServer '+server_version) 
+        winprops = WindowProperties()
+        winprops.setTitle('LSE GameServer '+server_version)
         base.win.requestProperties(winprops)
 
     @livecoding
@@ -4327,7 +4377,7 @@ class Main(SceneBase):
         print 'Solving block order...',
         self.nonlull_mission_types = self.coop_mission_types + self.indiv_mission_types
         self.mission_types = self.lull_mission_types + self.nonlull_mission_types
-        self.num_missions_nonlull = int(self.num_blocks * (self.num_missions_per_block[0]+self.num_missions_per_block[1]) / 2.0) 
+        self.num_missions_nonlull = int(self.num_blocks * (self.num_missions_per_block[0]+self.num_missions_per_block[1]) / 2.0)
         self.num_missions_total = self.num_missions_nonlull + self.num_blocks-1 # there is a lull mission between any two blocks 
 
         random.seed(permutation*1391 + 31)
@@ -4335,9 +4385,9 @@ class Main(SceneBase):
 
         # determine block lengths
         self.block_lengths = []
-        possible_lengths = range(self.num_missions_per_block[0],self.num_missions_per_block[1]+1)        
+        possible_lengths = range(self.num_missions_per_block[0],self.num_missions_per_block[1]+1)
         # make an initial guess and then adjust pseudo-randomly
-        for b in range(self.num_blocks):            
+        for b in range(self.num_blocks):
             self.block_lengths.append(random.choice(possible_lengths))
         while sum(self.block_lengths) < self.num_missions_nonlull:
             idx = random.choice([i for i in range(self.num_blocks) if self.block_lengths[i] < self.num_missions_per_block[1]])
@@ -4358,7 +4408,7 @@ class Main(SceneBase):
         # drop elements at random until we have the correct count
         while len(self.mission_order) > self.num_missions_nonlull:
             self.mission_order.pop(random.choice(range(len(self.mission_order))))
-        # now re-balance until we have a valid mix for each block
+            # now re-balance until we have a valid mix for each block
         okay = False
         attempts = 0
         while not okay:
@@ -4384,7 +4434,7 @@ class Main(SceneBase):
                 if fraction_coop < self.fraction_coop_per_block[0] or fraction_coop > self.fraction_coop_per_block[1]:
                     okay = False
                     break
-                # ensure that a given block contains no duplicate mission types
+                    # ensure that a given block contains no duplicate mission types
                 if self.no_duplicates_in_block:
                     submissions = [self.mission_order[k] for k in blockrange]
                     if len(set(submissions)) < len(submissions):
@@ -4427,7 +4477,7 @@ class Main(SceneBase):
                 while self.num_acks < len(self.clients):
                     self.sleep(0.1)
                 self.send_message('all-checkedin')
-            # wait for the space bar until we enter the actual game
+                # wait for the space bar until we enter the actual game
             self.write('Press space when ready to start the game.','space',pos=(1.2,-0.4))
 
     @livecoding
@@ -4437,7 +4487,7 @@ class Main(SceneBase):
         # add experimenter's free-floating camera and camera controls
         self.camera = NodePath(Camera('world_camera'))
         self.camera.node().setCameraMask(BitMask32.bit(2))
-        self.camera.reparentTo(self.world_root)        
+        self.camera.reparentTo(self.world_root)
         self.camera.setPos(self.initial_experimenter_camera_pos[0],self.initial_experimenter_camera_pos[1],self.initial_experimenter_camera_pos[2])
         self.camera.lookAt(self.initial_experimenter_camera_target[0],self.initial_experimenter_camera_target[1],self.initial_experimenter_camera_target[2])
         self.cam_lasttime = time.time()
@@ -4477,7 +4527,7 @@ class Main(SceneBase):
         self.write("Initializing world...")
 
         # first load the static game world for everyone
-        mapnum = random.choice(range(len(self.world_types)))        
+        mapnum = random.choice(range(len(self.world_types)))
         self.create_static_world(self.world_types[mapnum],None if self.no_terrain else self.terrain_types[mapnum],None,False)
         for cl in self.clients:
             cl.create_static_world(self.world_types[mapnum],None if self.no_terrain else self.terrain_types[mapnum],None,True)
@@ -4493,7 +4543,7 @@ class Main(SceneBase):
             pos = node.getPos(self.city)
             self.checkpoints.append((node.getName(),[pos.getX(),pos.getY(),pos.getZ()+self.checkpoint_height]))
             node.removeNode()
-        # sort by name...
+            # sort by name...
         self.checkpoints.sort()
         # remove the name again
         self.checkpoints = [x[1] for x in self.checkpoints]
@@ -4509,9 +4559,9 @@ class Main(SceneBase):
 
             for cl in self.clients:
                 cl.agents.append(rpyc.enable_async_methods(cl.find_agent(self.agent_names[k])))
-                cl.update_agents_poshpr.append(cl.agents[k].setPosHpr)                    
+                cl.update_agents_poshpr.append(cl.agents[k].setPosHpr)
 
-            # also create the (satmap) gizmo objects for the agents
+                # also create the (satmap) gizmo objects for the agents
             visible_to = [0,1]
             self.agent_gizmos.append(SmartGizmo(
                 display_scenegraphs=[self.clients[j].city for j in visible_to] + [self.city],
@@ -4586,9 +4636,9 @@ class Main(SceneBase):
             elif missiontype == 'coop-movetogether':
                 self.play_coop_movetogether()
             elif missiontype == 'coop-aerial/vehicle':
-                self.play_coop_aerialguide(['vehicle','aerial'])
-            elif missiontype == 'coop-vehicle/aerial':
                 self.play_coop_aerialguide(['aerial','vehicle'])
+            elif missiontype == 'coop-vehicle/aerial':
+                self.play_coop_aerialguide(['vehicle','aerial'])
             elif missiontype == 'coop-secureperimeter':
                 self.play_secureperimeter()
             elif missiontype == 'indiv-freeroam':
@@ -4651,7 +4701,7 @@ class Main(SceneBase):
                     require_reachability=False,
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
-            # wait until the checkpoint has been reached
+                # wait until the checkpoint has been reached
             for cp in range(len(self.checkpoints)):
                 # move the gizmo
                 pos = self.checkpoints[cp]
@@ -4659,7 +4709,7 @@ class Main(SceneBase):
                 # while not succeeded...
                 while (self.agents[self.vehicle_idx].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance:
                     self.sleep(1)
-                # checkpoint was reached
+                    # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
                 self.clients[self.vehicle_idx].viewport_instructions.submit('You have successfully reached the checkpoint!')
                 self.clients[self.vehicle_idx].overall_score.score_event(self.checkpoint_reach_bonus*self.clients[self.vehicle_idx].stress_task.stress_level)
@@ -4764,7 +4814,7 @@ class Main(SceneBase):
                                                 self.clients[c].overall_score.score_event(self.pancam_unseen_loss)
                             a.potentially_invisible_since[c] = now
                         a.is_potentially_visible[c] = potentially_visible
-                # time between updates
+                    # time between updates
                 self.sleep(0.25)
 
         finally:
@@ -4803,7 +4853,7 @@ class Main(SceneBase):
                     require_reachability=False,
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
-            # show the instructions
+                # show the instructions
             self.broadcast_message('starting now, perform the cooperative checkpoint mission with your partner.',mission=True)
             self.sleep(5)
             # set up periodic score update
@@ -4816,18 +4866,18 @@ class Main(SceneBase):
                 pos = self.checkpoints[cp]
                 self.checkpoint.move_to(pos)
                 # while not succeeded...
-                while ((self.agents[0].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance) or \
+                while ((self.agents[0].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance) or\
                       ((self.agents[1].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance):
                     # check if the agents are in fact staying together
-                    distance = (self.agents[0].getPos(self.city) - self.agents[1].getPos(self.city)).length() 
+                    distance = (self.agents[0].getPos(self.city) - self.agents[1].getPos(self.city)).length()
                     if  distance > self.staytogether_max_distance:
                         self.marker('Experiment Control/Task/Hints/Agents Stay Together')
                         self.broadcast_message('your vehicles need to stay together!')
                         self.update_score_both(self.staytogether_penalty)
                         self.sleep(5)
-                    # check again in a second
+                        # check again in a second
                     self.sleep(1)
-                # checkpoint was reached
+                    # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
                 self.broadcast_message('you have successfully reached the checkpoint!')
                 self.update_score_both(self.checkpoint_reach_bonus)
@@ -4874,18 +4924,18 @@ class Main(SceneBase):
                     require_reachability=False,
                     min_distance_between_positions=self.checkpoint_min_distance,
                     max_distance_between_successive_positions=self.checkpoint_max_distance)
-            # set up periodic score update
+                # set up periodic score update
             taskMgr.doMethodLater(self.aerialguide_score_drain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.aerialguide_score_drain,[0,1]], appendTask=True)
             # move the agent up into the air (by gradually ramping up the force)
             t0 = time.time()
             while True:
-                fraction = (time.time() - t0) / self.rise_time                                    
+                fraction = (time.time() - t0) / self.rise_time
                 if fraction > 1.0:
                     break
                 self.rise_force = self.rise_force_max * fraction
                 self.rise_force_offset = self.rise_force_offset_max * fraction
-                self.sleep(0.05)                                     
-            # add checkpoint gizmos for the players (but the vehicle player does not get to see them through walls)
+                self.sleep(0.05)
+                # add checkpoint gizmos for the players (but the vehicle player does not get to see them through walls)
             self.checkpoint = self.create_checkpoint(visible_to=[self.vehicle_idx,self.aerial_idx],oncamera=True,onsatmap=True,throughwalls=[False,True,True])
             # for each checkpoint...
             for cp in range(len(self.checkpoints)):
@@ -4898,7 +4948,7 @@ class Main(SceneBase):
                     # check if we've reached the checkpoint
                     if (vehicle_pos - Point3(pos[0],pos[1],pos[2])).length() < self.checkpoint_accept_distance:
                         break
-                    # check if we bumped into a hostile
+                        # check if we bumped into a hostile
                     for a in self.wanderers:
                         a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+2) # the agent's head is not on ground level
                         if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_maxsight=self.hostile_minimum_distance, src_fov=self.hostile_field_of_view) is not None and (time.time() - a.last_spotting_time[self.vehicle_idx]) > self.min_spotted_interval:
@@ -4908,18 +4958,18 @@ class Main(SceneBase):
                             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', your partner has been spotted by a foreign drone!')
                             self.update_score_both(self.spotted_penalty)
                             self.sleep(2)
-                    # check again shortly
+                        # check again shortly
                     self.sleep(0.25)
-                # checkpoint was reached
+                    # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
                 self.broadcast_message('you have successfully reached the checkpoint!')
                 self.update_score_both(self.checkpoint_reach_bonus)
                 self.sleep(3)
-            # slowly sink back to the ground
+                # slowly sink back to the ground
             self.broadcast_message('please try to land safely.',client=self.aerial_idx)
             self.rise_force = 0
             self.rise_force_offset = 0
-            self.sleep(15)
+            self.sleep(20)
         finally:
             # cleanup
             self.clients[self.aerial_idx].attention_manager.mask_regions(set(self.available_attention_set))
@@ -4961,7 +5011,7 @@ class Main(SceneBase):
             taskMgr.doMethodLater(self.secureperimeter_score_gain_period,self.update_score_periodic,'UpdateScorePeriodic',extraArgs=[self.secureperimeter_score_gain,[0,1]], appendTask=True)
             # run for a randomly predetermined time
             duration = random.uniform(self.secure_perimeter_duration[0],self.secure_perimeter_duration[1])
-            tEnd = time.time() + duration            
+            tEnd = time.time() + duration
             while time.time() < tEnd:
                 # check conditions for each invader         
                 for a in self.invaders:
@@ -5066,16 +5116,16 @@ class Main(SceneBase):
     def init_physics(self):
         """ Initialize physics simulation. """
         self.meshes = []
-        self.shapes = []        
+        self.shapes = []
         # create physics simulation
         self.physics = BulletWorld()
         self.physics.setGravity(Vec3(0, 0, -self.gravity))
         # add vehicles
         for k in range(len(self.agents)):
-            self.vehicles.append(self.init_physics_vehicle(self.agents[k],k))            
-        # add collision geometry
+            self.vehicles.append(self.init_physics_vehicle(self.agents[k],k))
+            # add collision geometry
         self.init_physics_city()
-        self.init_physics_terrain()        
+        self.init_physics_terrain()
         # start
         self.physics_lasttime = None
         self.last_reset_time = [0,0]
@@ -5116,14 +5166,14 @@ class Main(SceneBase):
             np.setScale(self.terrain_rescale[0]*self.terrainsize/1025.0,self.terrain_rescale[1]*self.terrainsize/1025.0,1.0)
             np.setCollideMask(BitMask32.allOn())
             self.physics.attachRigidBody(np.node())
-            print "done."        
+            print "done."
 
     @livecoding
     def init_physics_vehicle(self,sourcenode,k):
         """ Init a player-controlled vehicle. """
-        print "Setting up player-controlled vehicle...",        
+        print "Setting up player-controlled vehicle...",
         # add chassis, using the transform of the agent vehicle
-        chassisshape = BulletBoxShape(Vec3(self.vehicle_chassis_size[0], self.vehicle_chassis_size[1], self.vehicle_chassis_size[2]))                
+        chassisshape = BulletBoxShape(Vec3(self.vehicle_chassis_size[0], self.vehicle_chassis_size[1], self.vehicle_chassis_size[2]))
         ts = TransformState.makePos(Point3(self.vehicle_chassis_offset[0], self.vehicle_chassis_offset[1], self.vehicle_chassis_offset[2]))
         chassisnp = self.world_root.attachNewNode(BulletRigidBodyNode('Vehicle'+str(k)))
         chassisnp.setPos(sourcenode.getPos(self.city))
@@ -5151,7 +5201,7 @@ class Main(SceneBase):
         """ Init a single wheel of a player-controlled vehicle. """
         wheel = vehicle.createWheel()
         wheel.setChassisConnectionPointCs(pos)
-        wheel.setFrontWheel(isfront)    
+        wheel.setFrontWheel(isfront)
         wheel.setWheelDirectionCs(Vec3(0, 0, -1))
         wheel.setWheelAxleCs(Vec3(1, 0, 0))
         wheel.setWheelRadius(self.vehicle_wheel_radius)
@@ -5323,7 +5373,7 @@ class Main(SceneBase):
                 spawn_pos=pos,
                 hotspot=pos,
                 jitter=self.agent_scatter))
-        if delta == num: 
+        if delta == num:
             taskMgr.add(self.update_invaders,"UpdateInvaders")
 
     @livecoding
@@ -5422,7 +5472,7 @@ class Main(SceneBase):
     def broadcast_gamestate(self,task):
         """Update the entire dynamic observable gamestate on the client machines."""
         self.broadcast_agentstate()
-        return Task.cont    
+        return Task.cont
 
     @livecoding
     def update_terrain(self,task):
@@ -5553,7 +5603,7 @@ class Main(SceneBase):
 
     @livecoding
     def on_client_warn(self,idx):
-        """ Callback when a client has pressed the "warn off" button. """ 
+        """ Callback when a client has pressed the "warn off" button. """
         self.marker('Response/Button Press/Warn Agents')
         v = self.agents[idx]
         rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False)
@@ -5563,7 +5613,7 @@ class Main(SceneBase):
         for a in self.invaders:
             if a.mode == "hiding":
                 continue
-            # check if any invader has line-of-sight with the responsible player
+                # check if any invader has line-of-sight with the responsible player
             a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
             los = line_of_sight(self.physics,v.getPos(self.city),a_pos,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),a.vel,src_fov=self.friendly_field_of_view,dst_fov=self.hostile_field_of_view,src_maxsight=self.warn_distance)
             if los is not None:
@@ -5587,7 +5637,7 @@ class Main(SceneBase):
                          cl_idx,               # index of the participant emitting the speech
                          phrase,               # the raw phrase that was emitted
                          actual_speech=True    # whether the modality is in fact speech or rather a press of a labeled button
-                         ):
+    ):
         """ Handles the subjects' speech responses. """
 
         print str(time.time()) + " client",cl_idx,"said:",phrase
@@ -5656,7 +5706,7 @@ class Main(SceneBase):
     @livecoding
     def on_client_reset_vehicle(self,
                                 num        # index client of the client requesting the reset
-                                ):
+    ):
         """ Reset a lost player vehicle: places it on the map again and resets the orientation. """
         # reset can only be triggered once every few seconds
         if time.time() > (self.last_reset_time[num] + self.min_reset_interval) and (self.agent_control[num] == 'vehicle' or self.agent_control[num] == 'panning'):
@@ -5673,14 +5723,14 @@ class Main(SceneBase):
             if (time.time() - self.last_reset_time[num]) < self.repeat_reset_interval:
                 oldpos.setX(oldpos.getX()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
                 oldpos.setY(oldpos.getY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
-            # using and inrementally enlarged search radius (up to 50 meters range)
+                # using and inrementally enlarged search radius (up to 50 meters range)
             for radius in range(int(self.reset_snap_radius)):
                 try:
                     meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=radius, throw_if_notfound=True)[1])
                     break
                 except:
                     mshpos = oldpos
-            # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
+                # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
             hittest = self.physics.rayTestAll(meshpos,Point3(meshpos.getX(),meshpos.getY(),meshpos.getZ()+self.reset_snap_radius))
             if hittest.getNumHits() > 0:
                 max_fraction = max([hittest.getHit(k).getHitFraction() for k in range(hittest.getNumHits())])
@@ -5758,7 +5808,7 @@ class Main(SceneBase):
         channels = info.desc().append_child('channels')
         for agent in [0,1]:
             agent_name = 'Player' + str(agent)
-            for coord in ['X','Y','Z']: 
+            for coord in ['X','Y','Z']:
                 chn = channels.append_child('channel')
                 chn.append_child_value('name',agent_name + 'Position' + coord)
                 chn.append_child_value('type','Position' + coord)
@@ -5772,7 +5822,7 @@ class Main(SceneBase):
                 chn.append_child_value('object',agent_name)
         self.player_positions_outlet = pylsl.stream_outlet(info)
 
-    @livecoding        
+    @livecoding
     def update_lsl_playerstate(self):
         """ Push a new sample into the PlayerCoordinates stream. """
         mysample = []

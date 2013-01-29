@@ -12,7 +12,7 @@ class LatentModule(framework.tickmodule.TickModule, framework.basicstimuli.Basic
     Derive from this class to implement your own module with latent code, by overriding 
     the run() function. The only parts in your code that should consume significant amounts 
     of time are the calls to explicit time-consumption functions (see below), such as sleep().
-    The module convenience.py also contains a batch of functions that may consume time.
+    The module basicstimuli.py also contains a batch of functions that may consume time.
     
     Note that any of these functions may throw a ModuleCancelled exception, in which case your function
     needs to clean all resources from the screen, audio buffers (and event handlers) and exit as soon
