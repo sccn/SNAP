@@ -1126,7 +1126,7 @@ class AttentionSetManager(LatentModule):
                  available_subset = None,                                           # optionally a subset of currently available region names (list)
                  blink_count = 4,                                                   # number of blinks performed the attention indicators when they come on
                  blink_duration = 0.75,                                             # duration of the blinks (on state & off state, respectively)
-                 skip_duplicate_instructors = [('sounds','spoken sentences')]       # a list of pairs of instructors that are duplicate: if both are in the list (for a particular instruction), remove the second one from that list (e.g. two voice channels)
+                 skip_duplicate_instructors = (('sounds','spoken sentences'))       # a sequence of pairs of instructors that are duplicate: if both are in the list (for a particular instruction), remove the second one from that list (e.g. two voice channels)
     ):
         LatentModule.__init__(self)
         self.client_idx = client_idx
@@ -2098,6 +2098,7 @@ class SatmapTask(BasicStimuli):
 
             self.previous_label = label
 
+    #noinspection PyUnusedLocal
     def flash_button_bar(self,category,task):
         """ Flash one of the two button bars depending on the question category. """
         self.button_flasher(
@@ -5724,12 +5725,13 @@ class Main(SceneBase):
                 oldpos.setX(oldpos.getX()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
                 oldpos.setY(oldpos.getY()+random.uniform(-self.repeat_reset_jitter,self.repeat_reset_jitter))
                 # using and inrementally enlarged search radius (up to 50 meters range)
+            meshpos = oldpos
             for radius in range(int(self.reset_snap_radius)):
                 try:
                     meshpos = navigation.detour2panda(self.navmesh.nearest_point(pos=oldpos, radius=radius, throw_if_notfound=True)[1])
                     break
                 except:
-                    mshpos = oldpos
+                    pass
                 # raycast upwards to find the height of the world (in case this is within a building we'll spawn on the roof) and correct position
             hittest = self.physics.rayTestAll(meshpos,Point3(meshpos.getX(),meshpos.getY(),meshpos.getZ()+self.reset_snap_radius))
             if hittest.getNumHits() > 0:
