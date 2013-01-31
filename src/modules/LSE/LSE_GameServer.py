@@ -4092,6 +4092,9 @@ class Main(SceneBase):
         self.no_secureperimeter_in_first_block = True           # whether to disallow secure-the-perimeter missions in the first block
         self.watch_as_first_missions = True                     # whether to enfore that the first two missions are watch/pan and drive/watch missions
         self.mission_override = ''                              # can be used to override the current mission, e.g. for pilot testing
+        self.block_override = []                                # can be used to override an entire block, e.g. for pilot testing
+
+        self.skip_blocks = 0                                    # number of blocks to skip in the mission mix
 
         # world environments
         self.world_types = ['CityMedium2']                       # the possible environments; there must be a file 'media/<name>.bam' that is the actual scene graph
@@ -4133,8 +4136,8 @@ class Main(SceneBase):
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
         # to narrow steering range at higher speeds
-        self.vehicle_upper_speed = 40                           # in kilometers per hour -- this is where the engine starts to top out
-        self.vehicle_top_speed = 50                             # in kilometers per hour -- the engine cannot accelerate beyond this
+        self.vehicle_upper_speed = 25                           # in kilometers per hour -- this is where the engine starts to top out
+        self.vehicle_top_speed = 35                             # in kilometers per hour -- the engine cannot accelerate beyond this
         self.friendly_field_of_view = 90.0                      # the field of view of the agents
         self.reverse_brake_force_multiplier = 3                 # when braking via the joystick the engine force is multiplied by this
 
@@ -4266,7 +4269,7 @@ class Main(SceneBase):
         self.pancam_missed_loss = -1                            # penalty for a missed report during the pan-the-cam mission
         self.pancam_unseen_loss = -0.5                          # penalty for missing an unseen (outside the field of view) agent in the pan-the-cam mission
         self.pancam_spotted_gain = 1                            # gain for a correct spotting during the pan-the-cam mission
-        self.pancam_double_loss = -0.25                         # penalty for double-spotting an agent that has not really disappeared yet
+        self.pancam_double_loss = -0.5                          # penalty for double-spotting an agent that has not really disappeared yet
 
         # periodic score updates for certain missions
         self.movetogether_score_drain_period = 60               # period (in seconds) at which score is updated during the move-together mission (countered by reaching a checkpoint in time)
@@ -4463,6 +4466,11 @@ class Main(SceneBase):
         while len(self.lull_order) > (self.num_blocks-1):
             self.lull_order.pop(random.choice(range(len(self.lull_order))))
         random.shuffle(self.lull_order)
+
+        if self.skip_blocks:
+            self.block_missions = self.block_missions[self.skip_blocks:]
+            self.lull_order = self.lull_order[self.skip_blocks:]
+
         print 'done after', attempts, 'attempts.'
 
     @livecoding
@@ -4517,6 +4525,7 @@ class Main(SceneBase):
         self.accept('t',self.on_reverse); self.accept('t-repeat',self.on_reverse)
         self.accept('f',self.on_turnup); self.accept('f-repeat',self.on_turnup)
         self.accept('g',self.on_turndown); self.accept('g-repeat',self.on_turndown)
+        self.accept('x',self.on_debug);
 
         # init client GUIs
         for cl in self.clients:
@@ -4620,6 +4629,10 @@ class Main(SceneBase):
         """
         self.marker('Experiment Control/Sequence/Block Begins/%i' % b)
         blockdisplay = self.write('Current block #: ' + str(b+1) + '/' + str(self.num_blocks),pos=(-1.5,-0.975),scale=0.025,duration=max_duration,block=False)
+        if self.block_override:
+            self.block_missions[b] = self.block_override
+            self.block_lengths[b] = len(self.block_override)
+
         # for each mission in the block...
         for m in range(self.block_lengths[b]):
             missiontype = self.block_missions[b][m] if not self.mission_override else self.mission_override
@@ -5239,6 +5252,12 @@ class Main(SceneBase):
 
             brake = self.clients[client].braking
             handbrake = self.clients[client].handbrake_engaged or self.clients[client].is_locked_down()
+
+            if not self.agent_control[client] == 'aerial':
+                # ensure that everything that's non-aerial has no damping enabled
+                self.vehicles[client].getChassis().setAngularDamping(0.0)
+                self.vehicles[client].getChassis().setLinearDamping(0.0)
+
             if self.agent_control[client] == 'vehicle':
                 # apply vehicular steering
                 cur_speed = self.vehicles[client].getCurrentSpeedKmHour()
@@ -5271,6 +5290,21 @@ class Main(SceneBase):
                     ch.applyCentralForce(Vec3(forward.getX()*-x*self.aerial_accel,forward.getY()*-x*self.aerial_accel,forward.getZ()*-x*self.aerial_accel))
                     ch.applyTorque(Vec3(0,0,-v*self.aerial_turnrate))
                     ch.applyTorque(Vec3(left.getX()*u*self.aerial_turnrate,left.getY()*u*self.aerial_turnrate,left.getZ()*u*self.aerial_turnrate))
+                # apply automatic fly-by-wire control
+                p = self.agents[client].getPos(render)
+                # speed damping
+                self.vehicles[client].getChassis().setAngularDamping(self.aerial_angular_damping)
+                self.vehicles[client].getChassis().setLinearDamping(self.aerial_linear_damping)
+                # updrift
+                self.vehicles[client].getChassis().applyCentralImpulse(Vec3(0, 0, self.rise_force_offset + self.rise_force*max(0,(self.rise_altitude-p.getZ()))))
+                # axis stabilization
+                left = self.agents[client].getParent().getMat(render).getRow3(0)
+                left_planar = self.agents[client].getParent().getMat(render).getRow3(0)
+                left_planar.setZ(0)
+                left_planar *= 1.0 / left_planar.length()
+                correction = left.cross(left_planar) * self.axis_stabilization
+                #noinspection PyUnresolvedReferences
+                self.vehicles[client].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
             elif self.agent_control[client] == 'static':
                 # engage brakes and disable steering
                 self.vehicles[client].applyEngineForce(0, 2)
@@ -5295,29 +5329,6 @@ class Main(SceneBase):
                     mat *= Mat4.rotateMat(-steering*self.pan_speed,mat.getRow3(2))
                     mat.setRow(3,row3)
                     self.agents[client].getParent().setMat(render,mat)
-
-        # extra aerial control logic (fly-by-wire)
-        if 'aerial' in self.agent_control:
-            aerial_idx = self.agent_control.index('aerial')
-            p = self.agents[aerial_idx].getPos(render)
-            # speed damping
-            self.vehicles[aerial_idx].getChassis().setAngularDamping(self.aerial_angular_damping)
-            self.vehicles[aerial_idx].getChassis().setLinearDamping(self.aerial_linear_damping)
-            # updrift
-            self.vehicles[aerial_idx].getChassis().applyCentralImpulse(Vec3(0, 0, self.rise_force_offset + self.rise_force*max(0,(self.rise_altitude-p.getZ()))))
-            # axis stabilization
-            left = self.agents[aerial_idx].getParent().getMat(render).getRow3(0)
-            left_planar = self.agents[aerial_idx].getParent().getMat(render).getRow3(0)
-            left_planar.setZ(0)
-            left_planar *= 1.0 / left_planar.length()
-            correction = left.cross(left_planar) * self.axis_stabilization
-            #noinspection PyUnresolvedReferences
-            self.vehicles[aerial_idx].getChassis().applyTorque(Vec3(correction.getX(),correction.getY(),correction.getZ()))
-        else:
-            self.vehicles[0].getChassis().setAngularDamping(0.0)
-            self.vehicles[0].getChassis().setLinearDamping(0.0)
-            self.vehicles[1].getChassis().setAngularDamping(0.0)
-            self.vehicles[1].getChassis().setLinearDamping(0.0)
 
         self.physics.doPhysics(dt, self.physics_solver_max_substeps, self.physics_solver_stepsize)
         self.vehicles[0].getChassis().clearForces()
@@ -5539,6 +5550,10 @@ class Main(SceneBase):
 
     def on_turndown(self):
         self.cam_angular_velocity -= Point3(0,self.cam_turnrate,0)
+
+    def on_debug(self):
+        print "Breakpoint reached."
+
 
 
     # =============================
