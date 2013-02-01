@@ -94,6 +94,8 @@ DEVELOPER_MODE = True
 # Whether lost time (e.g., to processing or jitter) is compensated for by making the next sleep() slightly shorter
 COMPENSATE_LOST_TIME = True
 
+# Which serial port to use (0=disabled)
+COM_PORT = 0
 
 
 # ------------------------------
@@ -134,13 +136,15 @@ parser.add_option("-p","--serverport", dest="serverport", default=SERVER_PORT,
                   help="The port on which the launcher listens for remote control commands (e.g. loading a module).")
 parser.add_option("-t","--timecompensation", dest="timecompensation", default=COMPENSATE_LOST_TIME,
                   help="Compensate time lost to processing or jitter by making the successive sleep() call shorter by a corresponding amount of time (good for real time, can be a hindrance during debugging).")
+parser.add_option("--comport", dest="comport", default=COM_PORT,
+                  help="The COM port over which to send markers, or 0 if disabled.")
 (opts,args) = parser.parse_args()
 
 # --- Pre-engine initialization ---
 
 print 'Performing pre-engine initialization...'
-from framework.eventmarkers.eventmarkers import send_marker, init_markers
-init_markers(opts.labstreaming,True,opts.datariver)
+from framework.eventmarkers.eventmarkers import send_marker, init_markers, shutdown_markers
+init_markers(opts.labstreaming,True,opts.datariver,int(opts.comport))
 
 # --- Engine initialization ---
 
@@ -183,7 +187,8 @@ if opts.noborder is not None:
 if opts.nomousecursor is not None:
     loadPrcFileData('', 'nomousecursor ' + opts.nomousecursor)
 
-
+global is_running
+is_running = True
 
 # -----------------------------------
 # --- Main application definition ---
@@ -213,7 +218,7 @@ class MainApp(ShowBase):
         
         # register global keys if desired
         if opts.developer:
-            self.accept("escape",exit)
+            self.accept("escape",self.terminate)
             self.accept("f1",self._remote_commands.put,['start'])
             self.accept("f2",self._remote_commands.put,['cancel'])
             self.accept("f5",self._remote_commands.put,['prune'])
@@ -413,19 +418,27 @@ class MainApp(ShowBase):
         #framework.tickmodule.engine_lock.acquire()
         return Task.cont
 
+    def terminate(self):
+        exit()
+        global is_running
+        is_running = False
 
 
 # ----------------------
 # --- SNAP Main Loop ---
 # ----------------------
 
-app = MainApp(opts)
-while True:
-    framework.tickmodule.shared_lock.acquire()
-    #framework.tickmodule.engine_lock.acquire()
-    app.taskMgr.step()
-    #framework.tickmodule.engine_lock.release()
-    framework.tickmodule.shared_lock.release()
+try:
+    app = MainApp(opts)
+    while is_running:
+        framework.tickmodule.shared_lock.acquire()
+        #framework.tickmodule.engine_lock.acquire()
+        app.taskMgr.step()
+        #framework.tickmodule.engine_lock.release()
+        framework.tickmodule.shared_lock.release()
+except Exception,e:
+    print 'Error in main loop: ', e
+    traceback.print_exc()
 
 
 
@@ -434,3 +447,4 @@ while True:
 # --------------------------------
 
 print 'Terminating launcher...'
+shutdown_markers()

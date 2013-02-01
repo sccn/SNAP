@@ -1,0 +1,13 @@
+To make a new module, do the following:
+
+* create a new .py file in this directory and name it appropriately (say: yourmodule.py)
+
+* In the file, define a class called Main, and derive from either framework.tickmodule.TickModule or 
+  from framework.latentmodule.LatentModule. Your module should now be recognized by the framework (i.e.
+  it will not crash when you execute launcher.py --module=yourmodule)
+
+  If your module is even remotely complex, you are better off by deriving from LatentModule, and following
+  the instructions there. You may want to copy and paste from an existing module. Now is the best time to 
+  read the tutorial for Panda3d (on the web) to get started.
+
+* You might want to put your module into a sub-directory, especially if you are planning to write multiple modules for your study. 

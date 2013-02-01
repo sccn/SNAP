@@ -1,0 +1,50 @@
+What is a study?
+================
+
+A study typically involves a series of scripted experiments (or blocks) that can be launched by the operator 
+in some order (usually from a second PC).
+
+Each of the blocks runs some code (implemented as a module, as found in the modules directory) but possibly with
+different parameters than the other blocks (e.g. a different permutation, number of trials, game mode) or different
+from the defaults specified in the module's code.
+
+
+How to keep experiments manageable?
+===================================
+
+To prevent things from turning into a mess, do the follwing:
+
+1. Make one directory here for each study that you run. 
+
+2. In that directory, create one config for each of the blocks that should be separately runnable by the operator 
+   as part of the study (e.g. usertraining.cfg, calibration.cfg, mainrun.cfg, postbaseline.cfg).
+
+   The file format for a block .cfg file is as follows:
+   NameOfTheModule
+   name = value;
+   name = value;
+   name = value;
+
+   I.e. the first line contains the name of the module that should run for this block, and the remaining lines contain
+   the parameter assignments (e.g. trials=100; pausetime=20). Full python syntax is allowed, and the code is executed
+   in the scope of the Main instance of the module (no self. references are necessary).
+
+   IF YOU HAVE STUDY-SPECIFIC MEDIA (e.g. instruction screens), put them in the directory corresponding to your study.
+    
+
+3. Make a Windows shortcut with the launcher.py (e.g. on the Desktop) or create a .bat file and specify the 
+   command-line arguments that you need to run your study. Most importantly, make sure that you pass a
+   --studypath=yourstudy so that your files are being found, and a --developer=0 so that the subject cannot
+   accidentally terminate the launcher program (e.g. by pressing Esc). 
+
+
+4. Now make sure that your program can be remote-controlled from another computer over the network (i.e. that you
+   can select a block and start/cancel the selected block). You will usually start the launcher at the beginning 
+   of your session, and terminate it only after your have gone through all the experiment blocks.
+
+   IF you don't have a remote-control program (e.g. the MiniGUI), you can also set up your experiment "the cheap way"
+   by placing one shortcut for every block on your desktop. In this case, you add the command-line arguments
+   --module=yourblock.cfg --developer=1 --autolaunch=0 to make sure that the module doesn't start immediately,
+   but only after the subject presses the F1 key. in this case, you will need to walk over and prepare every block
+   by starting the appropriate launcher shortcut, and telling the subject that he/she shall press F1 when both of 
+   you are ready.
