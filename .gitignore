@@ -39,3 +39,6 @@ nosetests.xml
 
 # non-free content
 src/framework/console/*.py
+
+# deprecated content
+src/framework/deprecated/
