@@ -1,0 +1,15 @@
+eclipse.preferences.version=1
+encoding//src/framework/controllers/BrownianItems.py=utf-8
+encoding//src/framework/controllers/VisualSearchTask.py=utf-8
+encoding//src/framework/subtasks/BasicNavTask.py=utf-8
+encoding//src/framework/subtasks/CallsignStream.py=utf-8
+encoding//src/framework/subtasks/DistractorStream.py=utf-8
+encoding//src/framework/subtasks/StimulusStream.py=utf-8
+encoding//src/framework/subtasks/TargetStream.py=utf-8
+encoding//src/framework/subtasks/TextComprehensionStream.py=utf-8
+encoding//src/framework/ui_elements/AudioPresenter.py=utf-8
+encoding//src/framework/ui_elements/ImagePresenter.py=utf-8
+encoding//src/framework/ui_elements/MessagePresenter.py=utf-8
+encoding//src/framework/ui_elements/ScrollPresenter.py=utf-8
+encoding//src/framework/ui_elements/TextPresenter.py=utf-8
+encoding//src/framework/ui_elements/__init__.py=utf-8

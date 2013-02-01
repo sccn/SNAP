@@ -1,0 +1,83 @@
+Note for users of previous SNAP installations
+=============================================
+
+On WINDOWS
+==========
+
+1. Install Panda3d-1.8.0-forSNAP-win32.exe. You should  find it at:
+   ftp://sccn.ucsd.edu/pub/software/SNAP/
+
+2. Extract the SNAP distribution.
+   You should be able to run the SNAP launcher.py now (by double-clicking it on 
+   Windows or making a shortcut with additional command-line arguments). 
+   
+   If you are being asked to select a program to open the file with, you may pick 
+   C:\Panda3d-1.8.0\python\python.exe For possible arguments, see launcher.py. 
+   You can also drag the .py file onto your python.exe to run it. If you would force
+   this to be your default Python installation you can also install Python 2.7.2 "over" 
+   it by installing it to the location C:\Panda3d-1.8.0\python\ instead of the default
+   C:\Python27. Do not forget that you need to uninstall Python and Panda in reverse order
+   later.
+
+   If you make a shortcut with the launcher.py file on the Desktop and append some 
+   arguments you may have to modify the command line in the shortcut to look as follows:
+   python "C:\mystuff\SNAP\launcher.py" -m MyModule
+   (i.e., prepend python at the beginning, or C:\Panda3d-1.8.0\python\python.exe if
+   you have multiple Pythons around).
+   
+   You can add new modules by putting a new code file in the modules directory
+   (see modules\MAKING A MODULE.TXT). You can set up new studies (which is a way
+   to organize content, e.g. media files, at study granularity by creating a
+   sub-directory in the studies directory (see studies\MAKING A STUDY.TXT).
+
+3. Set up the editor and development environment.
+   In the folder where you installed Panda3d you find under the sub-directory 
+   python/eclipse a reasonable Python editor (eclipse.exe). It is fairly usable
+   but also quite clunky and complicated -- a good alternative is PyCharm (free for
+   Academia and open-source projects); if you would like to use this instead, skip
+   to the paragraph that starts with PyCharm).
+      
+   3.1. Eclipse) To import your current SNAP copy into the eclipse workspace, do the following:
+   - Right-click the Project Explorer panel and choose Import...
+   - Select General / Existing Projects into Workspace
+   - Under Select root directory, choose the SNAP folder
+   - Then under Projects: check SNAP (if not already checked) and click OK; 
+     SNAP should now be imported.
+   - you may be prompted to have your Python interpreter auto-configured. For this,
+     click on Auto-config, when asked select your Panda3d-1.8.0/python/python.exe file
+	 and otherwise click OK.
+
+   If you don't have a green "Play" button in your Eclipse toolbar, you
+   need to tell Eclipse (once) to auto-detect the Python interpreter:
+   - In the main window, go to Window / Preferences
+   - Expand Pydev, select Interpreter - Python, and click Auto Config and OK
+   - Windows only: In the list below, add a folder by clicking on New Folder;
+     your\path\to\Panda3d-1.8.0\bin
+
+   To debug or run SNAP from within the IDE, right-click in the Project Explorer
+   on the SNAP/src/launcher.py file, select Debug as / Python Run. After the
+   first-time launch, you find a green round playback icon right under the
+   source code panel, which lets you re-execute the previous configuration.
+   
+   By default this will just start the sample experiment; to customize the 
+   command-line arguments used for startup, select "Run Configurations..."
+   duplicate the one that is already pre-defined, and append to the arguments
+   some combination of command line arguments as explained in the beginning 
+   of launcher.py.
+  
+  
+   3.2. PyCharm) After you have installed PyCharm, click "Open Directory" and point it to 
+   your SNAP folder. Then right-click the launcher.py and select Run "launcher - defaults".
+   You may be asked to select your Python Interpreter first. To do this:
+   - Go to File / Settings / Project / Python Interpreter and click Configure Interpreter.
+   - Click The add button (a plus) next to the upper list box
+   - select the C:\Panda3d-1.8.0\python\python.exe file (or wherever you installed Panda)
+   - after you have clicked okay it will take a while to read the directory and after that
+     it will take another while until the wait bar at the bottom of the editor finishes
+     (it says "Indexing..." next to it).
+   - once the indexing is completed (a one-time thing) you can select the configuration to 
+     run in the pull-down bar next to the green play button (triangle) and then it the 
+     play button. To debug your code, click the button with the bug. See documentation.
+	 
+     
+  
