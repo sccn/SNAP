@@ -7,6 +7,7 @@
 #  instances of SNAP running the LSE_GameClient module.
 # ====================================================
 
+
 # Camera bitmasks (can be used to hide objects from certain types of cameras):
 # - 0: satmap camera for the first player
 # - 1: satmap camera for the second player
