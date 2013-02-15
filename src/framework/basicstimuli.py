@@ -22,6 +22,9 @@ class BasicStimuli:
         def setColor(self,r,g,b,a):
             for o in self.objs:
                 o.setColor(r,g,b,a)
+        def setPos(self,x,y,z):
+            for o in self.objs:
+                o.setPos(x,y,z)
 
     def __init__(self):
         self.set_engine(base=base,direct=direct,pandac=pandac.PandaModules)        

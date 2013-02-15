@@ -38,15 +38,16 @@ import rpyc
 import random, time, threading, math, traceback, itertools
 
 
-# =======================
-# === MAGIC CONSTANTS ===
-# =======================
-
+# magic constants
 server_version = '0.3'      # displayed to the experimenter so he/she can keep track of versions
 max_duration = 500000       # the maximum feasible duration (practically infinity)
 max_agents = 20             # maximum number of simultaneous AI-controlled agents
 screen_shuffle = [1,2,3]    # the order of the screen indices from left to right (for handedness switch or random permutation)
 screen_aspect = 1200/700.0  # screen aspect ratio that this should run on (note: this is the *client* aspect ratio)
+
+global ispause
+ispause = False             # whether we are currently in pause mode
+
 
 # ========================
 # === HELPER FUNCTIONS ===
@@ -159,7 +160,7 @@ def generate_positions(scenegraph,                  # the scene graph for which 
                        physics=None,                # optionally a bullet physics world to enforce line-of-sight constraints
 
                        # placement parameters
-                       objectnames=None,            # the names of objects to whose surfaces the points should be constrained
+                       objectnames=None,            # the names of objects to whose surfaces the points should be constrainebd
                        num_positions=1,             # the number of positions to generate
 
                        # position constraints (lists of points)
@@ -669,12 +670,14 @@ class ScoreCounter(BasicStimuli):
                  failure_volume = 0.5,                # volume of the failure sound
                  recovery_volume = 0.5,               # volume of the recovery sound
 
-                 # rising score number (currently unused)
+                 # rising score number
+                 enable_risers = True,                # whether to enable rising score numbers
                  riser_pos = None,                    # initial pos of the riser
                  riser_updrift = 0.1,                 # updrift in units/second
-                 riser_color = ((0.2,1,0.2,1),(1,0.2,0.2,1)), # initial colors of the riser (bonus,penalty)
-                 riser_fade = -0.1,                   # value added to the opacity per second
-                 riser_fontsize = 5,                  # font size of the text
+                 riser_color = ((0.8,0.8,0,1),(1,0.2,0.2,1)), # initial colors of the riser (bonus,penalty)
+                 riser_fade = -0.25,                  # value added to the opacity per second
+                 riser_duration = 2,                  # duration for which the riser is shown
+                 riser_fontsize = 0.07,               # font size of the text
 
                  dependent_score = None               # optionally a dependent score counter that shall aslo be updated
     ):
@@ -725,12 +728,17 @@ class ScoreCounter(BasicStimuli):
         self.riser_updrift = riser_updrift
         self.riser_color = riser_color
         self.riser_fade = riser_fade
+        self.riser_duration = riser_duration
         self.riser_fontsize = riser_fontsize
+        self.enable_risers = enable_risers
 
         self.dependent_score = dependent_score
 
-        self.paused = False
         self._is_failure = False
+
+        self.riser = None                       # this is the rising score indicator (initially transparent = invisible)
+        self.riser_period_start = None          # the time at which the currently ongoing rise period started, or None if not ongoing
+        self.riser_delta = 0                    # the score delta indicated by the riser (determines color)
 
         # open the score log
         self.marker('Experiment Control/Task/Scoring/Initial/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.score, self.counter_name, self.client_idx))
@@ -753,7 +761,7 @@ class ScoreCounter(BasicStimuli):
                     delta,              # relative score (can be negative)
                     nosound=True):      # if true, the ding/buzz sounds are disabled -- the critical sounds (failure/recovery) are unaffected by this
         """ Handle a score update. """
-        if self.paused:
+        if ispause:
             return
         self.marker('Stimulus/Feedback/%s/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % ('Reward' if delta>0 else 'Penalty', delta, self.counter_name, self.client_idx))
         self.score_log.write('%s %s [player %i]: score %i+%i -> %i\n' % (time.asctime(),self.counter_name,self.client_idx,self.score,delta,self.score+delta))
@@ -765,9 +773,14 @@ class ScoreCounter(BasicStimuli):
         if self.score >= self.critical_level and self._is_failure:
             self._is_failure = False
             self.play_recovery()
-            # display
+        # display
         if not nosound:
             self.play_delta_sounds(delta)
+        # reset the riser
+        if self.enable_risers:
+            self.riser_delta = delta
+            self.riser.setText(str(delta) if delta < 0 else ('+' + str(delta)))
+            self.riser_period_start = time.time()
         self.update_graphics()
         # handle dependent counters
         if self.dependent_score:
@@ -789,6 +802,10 @@ class ScoreCounter(BasicStimuli):
         self._bar_indicator.reparentTo(self._bar_scaler)
         self._bar_indicator.setColor(col[0],col[1],col[2],col[3])
         self._text = rpyc.enable_async_methods(self._stimpresenter.write(self.counter_name + ':' + str(self.score),duration=max_duration,block=False,pos=((self.bar_rect[0]+self.bar_rect[1])/2,(self.bar_rect[2]+self.bar_rect[3])/2),fg=self.text_color))
+        # initialize the riser
+        if self.enable_risers:
+            self.riser = rpyc.enable_async_methods(self._stimpresenter.write('  ',duration=max_duration,block=False,pos=((self.bar_rect[0]+self.bar_rect[1])/2,(self.bar_rect[2]+self.bar_rect[3])/2),scale=self.riser_fontsize,fg=(0,0,0,0)))
+            taskMgr.add(self.update_riser,'UpdateRiser')
 
     @livecoding
     def update_graphics(self):
@@ -801,6 +818,24 @@ class ScoreCounter(BasicStimuli):
             self._text.setFg((self.text_color_negative[0],self.text_color_negative[1],self.text_color_negative[2],self.text_color_negative[3]))
         else:
             self._text.setFg((self.text_color[0],self.text_color[1],self.text_color[2],self.text_color[3]))
+
+    @livecoding
+    def update_riser(self,task):
+        if self.enable_risers and self.riser_period_start is not None:
+            cur_duration = time.time() - self.riser_period_start
+            # update the rising score indicator's position & color
+            if cur_duration > self.riser_duration:
+                self.riser.setFg((0,0,0,0))
+                self.riser_period_start = None
+            else:
+                score_fraction = max(0.0,min(1.0,self.score/float(self.maximum_level)))
+                x = self.bar_rect[0] + (self.bar_rect[1]-self.bar_rect[0])*score_fraction
+                y = (self.bar_rect[2]+self.bar_rect[3])/2 + self.riser_updrift * cur_duration
+                col = self.riser_color[0] if self.riser_delta > 0 else self.riser_color[1]
+                alpha = min(1,max(0,col[3] + cur_duration*self.riser_fade))
+                self.riser.setY(y)
+                self.riser.setFg((col[0],col[1],col[2],alpha))
+        return Task.cont
 
     def cur_color(self):
         """ Calculate the current bar color. """
@@ -1039,7 +1074,7 @@ class QueryPresenter(LatentModule):
             lock_duration = self.default_lock_duration
         if response_timeout is None:
             response_timeout = self.default_response_timeout
-            # apply defaults to score aspects
+        # apply defaults to score aspects
         if loss_incorrect is None:
             loss_incorrect= self.default_loss_incorrect
         if gain_correct is None:
@@ -1057,12 +1092,17 @@ class QueryPresenter(LatentModule):
             self._locked_until = time.time()+lock_duration
             funcs = self.presenterfuncs[querydomain]
             if query:
-                for f in funcs:
-                    if query[-4:] == '.wav' or query[-4:] == '.mp3':
-                        # if it's a file don't try to prefix with callsign
-                        f(query,lockduration=lock_duration)
-                    else:
-                        f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration)
+                if type(query) is not str:
+                    # if the query is a function (special case), invoke it directly
+                    query()
+                else:
+                    # otherwise present it through the presenter functions
+                    for f in funcs:
+                        if query[-4:] == '.wav' or query[-4:] == '.mp3':
+                            # if it's a file don't try to prefix with callsign
+                            f(query,lockduration=lock_duration)
+                        else:
+                            f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration)
             self.marker('Experiment Control/Task/Queries/Issue-%s/{identifier:%i}, Participant/ID/%i' % ('Focused' if focused else 'Nonfocused',query_id,self.client_idx))
             if focused:
                 # watch for a response event
@@ -1101,7 +1141,8 @@ class QueryPresenter(LatentModule):
         """ Function that is called when a subset fails to make a timely response to a query. """
         self.marker('Experiment Control/Task/Missed Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
         self.scorecounters[scoredomain].score_event(loss_missed)
-        rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False)
+        if not ispause:
+            rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False)
         # clear the respective presenter
         for f in self.clearfuncs[querydomain]:
             f()
@@ -1518,7 +1559,7 @@ class IndicatorLightTask(LatentModule):
     @livecoding
     def on_missed(self):
         """ Subject misses to respond in time. """
-        if self.focused:
+        if self.focused and not ispause:
             self.marker('Participant/ID/%i, Experiment Control/Task/Missed Action' % self.client_idx)
             self.scorecounter.score_event(self.miss_penalty,nosound=self.no_score_sounds)
             rpyc.async(self.stimpresenter.sound)(self.snd_miss,**self.snd_params)
@@ -1535,7 +1576,7 @@ class IndicatorLightTask(LatentModule):
     @livecoding
     def on_correct(self,evtype,t):
         """ Subject presses the correct response button in time. """
-        if self.focused:
+        if self.focused and not ispause:
             # the user correctly spots the warning event
             self.marker('Participant/ID/%i, Experiment Control/Task/Correct Action' % self.client_idx)
             self.scorecounter.score_event(self.hit_reward,nosound=self.no_score_sounds)
@@ -1569,21 +1610,21 @@ class CommTask(LatentModule):
                  focused=True,                              # whether this object is in the user's focus
 
                  # content control
-                 command_file='sentences_with_answers.txt', # source file containing a list of actionable commands (sentences and assoc. questions)
-                 distractor_file='distractor_sentences.txt',# source file containing a list of distractor sentences
+                 command_file='sentences_with_answers.txt',  #source file containing a list of actionable commands (sentences and assoc. questions)
+                 distractor_file='distractor_sentences.txt', # source file containing a list of distractor sentences
                  callsign_file='callsigns.txt',             # source file containing a list of other call signs
                  numcallsigns=6,                            # subset of callsigns to use
 
                  # probabilities & timing control
-                 lull_time = lambda: random.uniform(20,40),                         # duration of lulls, in seconds (drawn per lull)
+                 lull_time = lambda: random.uniform(10,20),                         # duration of lulls, in seconds (drawn per lull)
                  situation_time = lambda: random.uniform(30,90),                    # duration of developing situations, in seconds (drawn per situation)
                  clearafter = 4,                                                    # clear presenter this many seconds after message display
-                 message_interval = lambda: random.uniform(8,15),                   # message interval, in s (drawn per message) (was 12,30)
-                 other_callsign_fraction = lambda: random.uniform(0.45,0.55),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
-                 no_callsign_fraction = lambda: random.uniform(0.05,0.10),          # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
-                 time_fraction_until_questions = lambda: random.uniform(0.05,0.15), # the fraction of time into the situation until the first question comes up (drawn per situation)
+                 message_interval = lambda: random.uniform(8,12),                   # message interval, in s (drawn per message) (was 12,30)
+                 other_callsign_fraction = lambda: random.uniform(0.4,0.5),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
+                 no_callsign_fraction = lambda: random.uniform(0.0,0.0),            # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
+                 time_fraction_until_questions = lambda: random.uniform(0,0),       # the fraction of time into the situation until the first question comes up (drawn per situation)
                  # in the tutorial mode, this should probably be close to zero
-                 questioned_fraction = lambda: random.uniform(0.6,0.8),             # fraction of targeted messages that incur questions
+                 questioned_fraction = lambda: random.uniform(0.65,0.8),             # fraction of targeted messages that incur questions
                  post_timeout_silence = lambda: random.uniform(1,3),                # radio silence after a timeout of a question has expired (good idea or not?)
 
                  # response control
@@ -1854,7 +1895,7 @@ class SatmapTask(BasicStimuli):
                  buttonbar_direction,                           # the button bar for direction responses
 
                  icons_file='icons_with_labels.txt',            # source file containing a list of sounds and associated queries, as well as correct/incorrect responses
-                 distractor_fraction = 0.4,                     # fraction of distractor events on the satmap (no question asked) (was 0.7)
+                 distractor_fraction = 0.5,                     # fraction of distractor events on the satmap (no question asked) (was 0.7)
                  color_question_fraction = 0.5,                 # fraction of questions that is about object color rather than quadrant
                  changes_per_cycle = lambda:random.choice([0,0,1,1,2]), # a function that returns how many things should change per update cycle (additions and removals count separately)
                  satmap_coverage = (180,180),                   # coverage area of the satellite map (horizontal, vertical, in meters)
@@ -1863,7 +1904,7 @@ class SatmapTask(BasicStimuli):
                  response_timeout = 6,                          # response timeout for the queries
                  focused = False,                               # whether this scheduler is currently focused
                  approx_max_items = 1,                          # the approx. number of max. items (if more we'll be adding no more than we remove)
-                 angular_ambiguity_zone = 10,                   # exclude icons that appear to close to the ambiguity zones (i.e. fall within this many degrees from the zone boundaries)
+                 angular_ambiguity_zone = 10,                   # exclude icons that appear too close to the ambiguity zones (i.e. fall within this many degrees from the zone boundaries)
                  loss_incorrect=-2,                             # amount of loss incurred when incorrectly answering
                  gain_correct=2,                                # amount of reward gained when answering correctly
                  loss_skipped=-1,                               # amount of loss incurred when admitting a miss
@@ -1988,7 +2029,8 @@ class SatmapTask(BasicStimuli):
                         delay = self.onset_delay()
                         question = self.current_questions[idx]
                         if self.use_buttonflash:
-                            taskMgr.doMethodLater(delay,self.flash_button_bar,'FlashButtonBar',extraArgs=[question.category], appendTask=True)
+                            question.phrase = lambda:self.flash_button_bar(question.category,None)
+                            #taskMgr.doMethodLater(delay,self.flash_button_bar,'FlashButtonBar',extraArgs=[question.category], appendTask=True)
 
                         # present the associated query
                         self.querypresenter.submit_question(
@@ -2124,7 +2166,7 @@ class SoundTask(LatentModule):
                  client_idx,                                    # ID of the responsible participant
 
                  # timing control
-                 sound_interval = lambda: random.uniform(10,18),# interval between sound events
+                 sound_interval = lambda: random.uniform(8,14), # interval between sound events
                  lock_duration = (6,8),                         # duration for which the query presenter is blocked by sound-queries
                  onset_delay = lambda: random.uniform(2,4),     # onset delay of the sound-related queries
                  response_timeout = 6,                          # response timeout for the queries
@@ -2328,7 +2370,7 @@ class ProbedObjectsTask(LatentModule):
                  response_timeout = 5,                       # response timeout for the queries
 
                  # reporting details
-                 reportable_objects = ('Sand bags',),        # subset of objects that should be reported directly
+                 reportable_objects = ('sand bags',),        # subset of objects that should be reported directly
                  reportable_timeout = 5,                     # timeout for reporting reportable objects
                  reportable_score_multiplier = 2,            # score multiplier for gain/loss/etc in case of reportable items
                  reportable_fraction = 0.05,                 # fraction of reportable items among all items
@@ -4103,6 +4145,13 @@ class Main(SceneBase):
         self.agent_names = ["PlayerA","PlayerB"]                 # name of the agent objects in the world map
         self.truck_name = "Truck"                                # name of the truck entity in the world: this is used to position/find the truck location
 
+        # for eye tracker recalibration
+        self.gaze_stream_names = ['GazeStream_Delta','GazeStream_Echo'] # names of the involved gaze-coordinate streams
+        self.gaze_channels = [2,3]
+        self.gaze_gizmo_size = 0.15                              # size of the gaze gizmo (relative to screen height)
+        self.gaze_gizmo_width = 0.01                             # size of the gaze gizmo (crosshair)
+        self.gaze_gizmo_color = (1,1,1,1)                        # color (should be clearly visible on video cam)
+
         # enabled attention set
         self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
 
@@ -4137,8 +4186,8 @@ class Main(SceneBase):
         self.steering_range = 33.0                              # maximum range (angle in degrees) of the steering 
         self.steering_dampspeed = 15                            # steering range reaches 1/2 its max value when speed reaches 2x this value (in Kilometers per Hour),
         # to narrow steering range at higher speeds
-        self.vehicle_upper_speed = 25                           # in kilometers per hour -- this is where the engine starts to top out
-        self.vehicle_top_speed = 35                             # in kilometers per hour -- the engine cannot accelerate beyond this
+        self.vehicle_upper_speed = 15                           # in kilometers per hour -- this is where the engine starts to top out
+        self.vehicle_top_speed = 25                             # in kilometers per hour -- the engine cannot accelerate beyond this
         self.friendly_field_of_view = 90.0                      # the field of view of the agents
         self.reverse_brake_force_multiplier = 3                 # when braking via the joystick the engine force is multiplied by this
 
@@ -4305,6 +4354,11 @@ class Main(SceneBase):
         self.last_modality = False                              # true if the last response modality was speech
         self.same_modality_repeats = 0                          # number of successive responses in the same modality (speech versus button)
         self.last_report_press_time = [0,0]                     # last time when a player hit the report button
+
+        # for eye-tracker recalibration
+        self.gaze_streams = [None,None]                         # holds the remote gaze streams
+        self.gaze_icons = [None,None]                           # holds the icons whose positions to update
+        self.sample = pylsl.vectorf()                           # temporary value
 
         # initialize the clients
         for k in [0,1]:
@@ -4526,11 +4580,18 @@ class Main(SceneBase):
         self.accept('t',self.on_reverse); self.accept('t-repeat',self.on_reverse)
         self.accept('f',self.on_turnup); self.accept('f-repeat',self.on_turnup)
         self.accept('g',self.on_turndown); self.accept('g-repeat',self.on_turndown)
-        self.accept('x',self.on_debug);
+
+        # add misc experimenter buttons
+        self.accept('x',self.on_debug)
+        self.accept('n',lambda: self.toggle_recalibration(1))
+        self.accept('m',lambda: self.toggle_recalibration(0))
+        self.accept('p',self.on_pause)
 
         # init client GUIs
         for cl in self.clients:
             cl.init_gui()
+
+        taskMgr.add(self.update_gaze_icons,"UpdateGazeIcons")
 
     @livecoding
     def init_static_world(self):
@@ -4638,6 +4699,10 @@ class Main(SceneBase):
         for m in range(self.block_lengths[b]):
             missiontype = self.block_missions[b][m] if not self.mission_override else self.mission_override
             missiondisplay = self.write('Mission # within block: ' + str(m+1) + '/' + str(self.block_lengths[b]) + '; name: ' + missiontype,pos=(-1.5,-0.925),scale=0.025,duration=max_duration,block=False)
+            if ispause:
+                self.broadcast_message('please wait until the end of the pause.',mission=True)
+                while ispause:
+                    self.sleep(1)
             # play the next block mission
             self.marker('Experiment Control/Sequence/Mission Begins/%s' % missiontype)
             if missiontype == 'indiv-drive/watch':
@@ -5491,7 +5556,26 @@ class Main(SceneBase):
     def update_terrain(self,task):
         for cl in self.clients:
             cl.update_terrain()
-        return task.cont
+        return Task.cont
+
+    @livecoding
+    def update_gaze_icons(self,task):
+        try:
+            for client in [0,1]:
+                if (self.gaze_streams[client] is not None) and (self.gaze_icons[client] is not None):
+                    # get the most recent sample
+                    last_sample = None
+                    while self.gaze_streams[client].pull_sample(self.sample,0):
+                        last_sample = self.sample
+                    # update the position of the respective gaze icon
+                    if last_sample:
+                        coords = list(last_sample)
+                        pos = grid(2,(1000*coords[self.gaze_channels[0]],1000),(1000*coords[self.gaze_channels[1]],1000),bo=0,ma=0)
+                        rpyc.async(self.gaze_icons[client].setPos)(pos[0],0,pos[1])
+        except Exception,e:
+            print "Error during gaze icon update: ",e
+        finally:
+            return Task.cont
 
     # ============================================
     # === EXPERIMENTER CAMERA CONTROL HANDLERS ===
@@ -5552,10 +5636,41 @@ class Main(SceneBase):
     def on_turndown(self):
         self.cam_angular_velocity -= Point3(0,self.cam_turnrate,0)
 
+
+    # ==================================
+    # === MISC EXPERIMENTER CONTROLS ===
+    # ==================================
+
     def on_debug(self):
         print "Breakpoint reached."
 
+    @livecoding
+    def on_pause(self):
+        global ispause
+        ispause = not ispause
+        if ispause:
+            self.pause_indicator = self.write("Pause",duration=max_duration,block=False,pos=(0,-0.66),scale=0.15,fg=(1,1,1,1))
+        else:
+            self.pause_indicator.destroy()
 
+    @livecoding
+    def toggle_recalibration(self,client):
+        if self.gaze_streams[client] is None:
+            # resolve the correct gaze stream
+            info = pylsl.resolve_stream('name',self.gaze_stream_names[client],1,5)
+            if not info:
+                print "Did not find a stream named:",self.gaze_stream_names[client]
+            else:
+                # and open an inlet
+                self.gaze_streams[client] = pylsl.stream_inlet(info[0])
+                # also create an icon
+                self.gaze_icons[client] = self.clients[client].remote_stimpresenter.crosshair(duration=max_duration,size=self.gaze_gizmo_size,width=self.gaze_gizmo_width,color=self.gaze_gizmo_color,block=False)
+        else:
+            # delete the respective objects again
+            if self.gaze_icons[client] is not None:
+                self.gaze_icons[client].destroy()
+                self.gaze_icons[client] = None
+            self.gaze_streams[client] = None
 
     # =============================
     # === CLIENT EVENT HANDLERS ===
@@ -5856,7 +5971,7 @@ class Main(SceneBase):
         info = pylsl.stream_info('SNAP-LSE-AgentCoordinates','Control',(3+3)*max_agents,0,pylsl.cf_float32,'SNAP-LSE-Agentstream' + server_version + str(self.permutation))
         # append some serious meta-data
         channels = info.desc().append_child('channels')
-        for agent in [0,1]:
+        for agent in range(max_agents):
             agent_name = 'Agent' + str(agent)
             for coord in ['X','Y','Z']:
                 chn = channels.append_child('channel')
