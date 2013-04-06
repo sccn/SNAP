@@ -255,10 +255,9 @@ class LatentModule(framework.tickmodule.TickModule, framework.basicstimuli.Basic
         calling results = watchfor_multiple_end().
         
         The general usage pattern is:
-        
-        h = watchfor_multiple_begin(['event1','event2'])
+        h = self.watchfor_multiple_begin(['event1','event2'])
         # ... do something ...
-        results = watchfor_multiple_end(h);
+        results = self.watchfor_multiple_end(h);
         """
         # register event handlers and reset the dict
         self._measuretime = time.time()        

@@ -47,6 +47,7 @@ class AudioPresenter(MessagePresenter):
         self.audio3d = None      
 
     def _present(self,message):
+        self.marker("AudioPresenter::_present(%s)" % message)
         if message[-4] == '.':
             # sound file name 
             if self.surround:            
@@ -81,6 +82,7 @@ class AudioPresenter(MessagePresenter):
                 print "Error initializing speech output."
 
     def do_speak(self,message):
+        self.marker("AudioPresenter::do_speak(%s)" % message)
         try:
             self.speak.Speak(message)
         except:

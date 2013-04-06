@@ -36,7 +36,8 @@ The SNAP experiment launcher program. To be run on the subject's PC.
 * For quick-and-dirty testing you may also override the launch options below under "Default Launcher Configuration", but note that you cannot check these changes back into the main source repository of SNAP.  
     
 '''
-import optparse, sys, os, fnmatch, traceback
+import optparse, sys, os, fnmatch, traceback, time
+from framework.OSC import OSCClient, OSCMessage
 
 SNAP_VERSION = '1.01'
 
@@ -94,8 +95,14 @@ DEVELOPER_MODE = True
 # Whether lost time (e.g., to processing or jitter) is compensated for by making the next sleep() slightly shorter
 COMPENSATE_LOST_TIME = True
 
-# Which serial port to use (0=disabled)
+# Which serial port to use to transmit events (0=disabled)
 COM_PORT = 0
+
+# Whether to use OSC for sound playback
+OSC_SOUND = False
+
+# these are the IP addresses for the involved OSC machines
+OSC_MACHINE_IP = {"array":"10.0.0.105", "surround":"10.0.0.106"}
 
 
 # ------------------------------
@@ -138,13 +145,18 @@ parser.add_option("-t","--timecompensation", dest="timecompensation", default=CO
                   help="Compensate time lost to processing or jitter by making the successive sleep() call shorter by a corresponding amount of time (good for real time, can be a hindrance during debugging).")
 parser.add_option("--comport", dest="comport", default=COM_PORT,
                   help="The COM port over which to send markers, or 0 if disabled.")
+parser.add_option("-x","--xoscsound", dest="oscsound", default=OSC_SOUND,
+                  help="Use OSC for sound playback.")
+parser.add_option("-i","--idosc", dest="idosc", default=0,
+                  help="The OSC client ID (determines which sound ID range it gets).")
 (opts,args) = parser.parse_args()
 
 # --- Pre-engine initialization ---
 
 print 'Performing pre-engine initialization...'
+import socket
 from framework.eventmarkers.eventmarkers import send_marker, init_markers, shutdown_markers
-init_markers(opts.labstreaming,True,opts.datariver,int(opts.comport))
+init_markers(opts.labstreaming,True,opts.datariver,int(opts.comport),socket.gethostname() + "_" + opts.module)
 
 # --- Engine initialization ---
 
@@ -186,6 +198,40 @@ if opts.noborder is not None:
     loadPrcFileData('', 'undecorated ' + opts.noborder)
 if opts.nomousecursor is not None:
     loadPrcFileData('', 'nomousecursor ' + opts.nomousecursor)
+
+# init OSC sound
+oscclient = None
+if opts.oscsound:
+    print "Loading sound system..."
+    oscclient = {}
+    for m in OSC_MACHINE_IP.keys():
+        # there are multiple machines responsible for sound playback over different speaker groups:
+        # connect to each of them
+        print "Connecting to", m, "(" + OSC_MACHINE_IP[m] + ")..."
+        try:
+            oscclient[m] = OSCClient()
+            # hack in some management for the assining numbers to sources...
+            if opts.idosc == '0':
+                oscclient[m].idrange = [1,2,3,4,5]
+            elif opts.idosc == '1':
+                oscclient[m].idrange = [6,7,8,9,10]
+            elif opts.idosc == '2':
+                oscclient[m].idrange = [11,12,13,14,15]
+            else:
+                raise Exception("Unsupported OSC ID specified.")
+            oscclient[m].current_source = 0
+            oscclient[m].projectname = 'SCCN'
+            oscclient[m].connect((OSC_MACHINE_IP[m],15003))
+            if opts.idosc == '1':
+                print "sending OSC master commands..."
+                msg = OSCMessage("/AM/Load"); msg.append("/"+oscclient[m].projectname); oscclient[m].send(msg)
+                # wait a few seconds...
+                time.sleep(4)
+                # load the default preset
+                msg = OSCMessage("/"+oscclient[m].projectname+"/system"); msg += ["preset", 1]; oscclient[m].send(msg)
+            print "success."
+        except Exception as e:
+            print "failed:" + e
 
 global is_running
 is_running = True
@@ -273,6 +319,7 @@ class MainApp(ShowBase):
                     print "Instantiating the module's Main class...",
                     self._instance = self._module.Main()
                     self._instance._make_up_for_lost_time = self._opts.timecompensation
+                    self._instance._oscclient = oscclient
                     print 'done.'
                 except ImportError,e:
                     print "The experiment module '"+ name + "' could not be imported correctly. Make sure that its own imports are properly found by Python; reason:"

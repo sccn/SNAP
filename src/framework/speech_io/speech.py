@@ -65,8 +65,9 @@ gencache.EnsureModule('{C866CA3A-32F7-11D2-9602-00C04F8EE628}', 0, 5, 0)
 _voice = win32com.client.Dispatch("SAPI.SpVoice")
 # _recognizer = win32com.client.Dispatch("SAPI.SpSharedRecognizer") #_recognizer = win32com.client.Dispatch("SAPI.SpInprocRecognizer") #_recognizer = win32com.client.Dispatch("SAPI.SpSharedRecognizer")
 _recognizer = win32com.client.Dispatch("SAPI.SpInProcRecognizer")
-_recognizer.AudioInputStream = win32com.client.Dispatch("SAPI.SpMMAudioIn") 
+_recognizer.AudioInputStream = win32com.client.Dispatch("SAPI.SpMMAudioIn")
 
+# _speechlog = open('logs\\speechlog-%s.log' % time.asctime().replace(':','_'),'a')
 
 # TODO: we want to use the inproc recognizer instead of the shared recognizer (shared reco triggers all sorts of stray OS commands while talking, e.g., deleting files or shutting down the OS)
 # but the issue is that the inproc recognizer needs to be told which input device it should use. The win32 API calls to do that look somewhat arcane.....
@@ -150,8 +151,14 @@ class _ListenerCallback(_ListenerBase):
 
 def say(phrase):
     """Say the given phrase out loud."""
+    #try:
+    #    _speechlog.write('speaking phrase: ' + phrase + '...')
+    #except:
+    #    _speechlog.write('cannot print phrase...')
+    #_speechlog.flush()
     _voice.Speak(phrase)
-
+    #_speechlog.write('done.\n')
+    #_speechlog.flush()
 
 def input(prompt=None, phraselist=None):
     """

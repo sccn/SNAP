@@ -17,14 +17,14 @@ global serial_port
 serial_port = None
 
 
-def init_markers(lsl,logfile,datariver,serialport):
+def init_markers(lsl,logfile,datariver,serialport,uid):
     """ Initialize the marker protocols to use. """
 
     if lsl:
         try:
             global lsl_backend
             import pylsl.pylsl as pylsl
-            info = pylsl.stream_info("SNAP-Markers","Markers",1,0,pylsl.cf_string,"SNAPmarkers-" + socket.gethostname() + time.asctime())
+            info = pylsl.stream_info("SNAP-Markers","Markers",1,0,pylsl.cf_string,"SNAPmarkers-" + uid)
             lsl_backend = pylsl.stream_outlet(info)
             lsl_backend.pylsl = pylsl
             print "The lab streaming layer is ready for sending markers."

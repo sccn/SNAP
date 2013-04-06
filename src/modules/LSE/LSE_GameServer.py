@@ -53,6 +53,13 @@ ispause = False             # whether we are currently in pause mode
 # === HELPER FUNCTIONS ===
 # ======================== 
 
+global experimenter_logger
+experimenter_logger = None
+def log_experimenter(msg):
+    """ Logging function for the experimenter. """
+    if experimenter_logger:
+        experimenter_logger(time.strftime("%H:%M:%S", time.localtime()) + ": "  + msg)
+
 def livecoding_fast(fn):
     return fn
 
@@ -73,6 +80,7 @@ def livecoding(fn):
             print "Exception " + str(e) + " in " + fn.__name__
             try:
                 send_marker('Experiment Control/Status/Error/%s' % (str(e),))
+                experimenter_logger("Game Error in %s: %s" % (fn.__name__,str(e)))
             except:
                 pass
             try:
@@ -661,8 +669,8 @@ class ScoreCounter(BasicStimuli):
                  gain_file = 'default_ding.wav',      # sound file per point
                  loss_file = 'default_buzz.wav',      # sound file for losses
                  none_file = 'default_click.wav',     # file to play if no reward
-                 failure_file = 'failure.wav',        # file to play if player fails this score counter (hits 0)
-                 recovery_file = 'recovery.wav',      # file to play if player makes it back into the green with this counter (goes above critical mark) [should play the triumphal American marsh in Civ II]
+                 failure_file = '',#'failure.wav',    # file to play if player fails this score counter (hits 0)
+                 recovery_file = '',#'recovery.wav',  # file to play if player makes it back into the green with this counter (goes above critical mark) [should play the triumphal American marsh in Civ II]
                  ding_interval = 0.1,                 # interval at which successive gain sounds are played... (if score is > 1)
                  ding_granularity=1,                  # the number of dings played is ceil(scoredelta/ding_granularity); same holds for buzzes
                  loss_volume = 0.5,                   # volume of the loss sound
@@ -870,32 +878,32 @@ class ScoreCounter(BasicStimuli):
                 delta += self.ding_granularity
         else:
             # play the no-score delta sounds (probably unused)
-            rpyc.async(self._stimpresenter.sound)(self.none_file,volume=self.loss_volume,**self.sound_params)
+            rpyc.async(self._stimpresenter.sound)(self.none_file,volume=self.loss_volume,location='array',**self.sound_params)
 
     @livecoding
     def play_gain(self,task):
         """ Play the gain sound. """
-        rpyc.async(self._stimpresenter.sound)(self.gain_file,volume=self.gain_volume,**self.sound_params)
+        rpyc.async(self._stimpresenter.sound)(self.gain_file,volume=self.gain_volume,location='array',**self.sound_params)
         self.marker('Stimulus/Auditory/Reward, Stimulus/Auditory/Sound File/"%s", Participant/ID/%i' % (self.gain_file, self.client_idx))
         return task.done
 
     @livecoding
     def play_loss(self,task):
         """ Play the loss sound. """
-        rpyc.async(self._stimpresenter.sound)(self.loss_file,volume=self.loss_volume,**self.sound_params)
+        rpyc.async(self._stimpresenter.sound)(self.loss_file,volume=self.loss_volume,location='array',**self.sound_params)
         self.marker('Stimulus/Auditory/Penalty, Stimulus/Auditory/Sound File/"%s", Participant/ID/%i' % (self.loss_file, self.client_idx))
         return task.done
 
     @livecoding
     def play_failure(self):
         """ Play the failure sound. """
-        rpyc.async(self._stimpresenter.sound)(self.failure_file,volume=self.failure_volume,**self.sound_params)
+        rpyc.async(self._stimpresenter.sound)(self.failure_file,volume=self.failure_volume,location='array',**self.sound_params)
         self.marker('Stimulus/Auditory/Failure, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.failure_file, self.counter_name, self.client_idx))
 
     @livecoding
     def play_recovery(self):
         """ Play the recovery sound. """
-        rpyc.async(self._stimpresenter.sound)(self.recovery_file,volume=self.recovery_volume,**self.sound_params)
+        rpyc.async(self._stimpresenter.sound)(self.recovery_file,volume=self.recovery_volume,location='array',**self.sound_params)
         self.marker('Stimulus/Auditory/Recovery, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.recovery_file, self.counter_name, self.client_idx))
 
 
@@ -1124,10 +1132,12 @@ class QueryPresenter(LatentModule):
             self.scorecounters[scoredomain].score_event(gain_correct,nosound=False)
         elif actual_response in wrong_responses:
             self.marker('Experiment Control/Task/Incorrect Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
+            log_experimenter('Subject%i error in %s (%s instead of %s)' % (self.client_idx,scoredomain,actual_response,correct_response))
             self.scorecounters[scoredomain].score_event(loss_incorrect,nosound=False)
         elif actual_response == skip_response:
             self.marker('Experiment Control/Task/Skipped Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
-            rpyc.async(self.stimpresenter.sound)(self.skip_sound,volume=self.skip_volume,block=False)
+            log_experimenter('Subject%i skipped in %s' % (self.client_idx,scoredomain))
+            rpyc.async(self.stimpresenter.sound)(self.skip_sound,volume=self.skip_volume,block=False,location='array')
             self.scorecounters[scoredomain].score_event(loss_skipped)
         else:
             self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
@@ -1142,7 +1152,8 @@ class QueryPresenter(LatentModule):
         self.marker('Experiment Control/Task/Missed Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
         self.scorecounters[scoredomain].score_event(loss_missed)
         if not ispause:
-            rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False)
+            log_experimenter('Subject%i timeout in %s' % (self.client_idx,scoredomain))
+            rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False,location='array')
         # clear the respective presenter
         for f in self.clearfuncs[querydomain]:
             f()
@@ -1349,10 +1360,11 @@ class StressTask(LatentModule):
     def __init__(self,
                  iconpresenterfunc,                                     # presenter function to display the stress indicator icon
                  client_idx,                                            # index of the affected participant
-                 low_stress_duration = lambda: random.uniform(60,360),  # the duration of low-stress periods, in seconds
-                 high_stress_duration = lambda: random.uniform(15,60),  # the duration of high-stress periods, in seconds
+                 low_stress_duration = lambda: random.uniform(450,600), # the duration of low-stress periods, in seconds
+                 high_stress_duration = lambda: random.uniform(45,75),  # the duration of high-stress periods, in seconds
+                 color_transition_duration = 2,                         # duration of the background color transition
                  low_stress_value = 1,                                  # the stress parameter value during low periods
-                 high_stress_value = 3,                                 # the stress parameter value during high periods
+                 high_stress_value = 4,                                 # the stress parameter value during high periods
                  low_transition_sound = 'birds.wav',                    # sound to play when transitioning to low stress
                  low_transition_icon = 'lowstress.png',                 # sound to play when transitioning to low stress
                  low_transition_volume = 0.3,                           # volume of that sound
@@ -1374,18 +1386,20 @@ class StressTask(LatentModule):
         self.high_transition_icon = high_transition_icon
         self.low_transition_volume = low_transition_volume
         self.high_transition_volume = high_transition_volume
+        self.color_transition_duration = color_transition_duration
         self.client_idx = client_idx
 
         # this is the stress parameter
         self.stress_level = low_stress_value
 
         self.disabled = False    # whether the task is temporarily disabled
+        self.setcolor = rpyc.async(self.stimpresenter._engine.base.win.setClearColor)
 
     def run(self):
         self.log_setup_parameters()
         while True:
             # enter a low stress period
-            rpyc.async(self.stimpresenter.sound)(filename = self.low_transition_sound, volume = self.low_transition_volume)
+            log_experimenter('(Subject%i: now in low stress period)' % self.client_idx)
             self.iconpresenterfunc(self.low_transition_icon)
             self.stress_level = self.low_stress_value
             duration = self.low_stress_duration()
@@ -1394,18 +1408,32 @@ class StressTask(LatentModule):
 
             if self.disabled:
                 while self.disabled:
-                    # do not enter a high-stres period while we're still disabled
+                    # do not enter a high-stress period while we're still disabled
                     self.sleep(1)
                     # and generally skip forward to the slow-stress period after the pause
                 continue
 
+            # fade to red
+            rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume,sourcetype='ambient',override_id=17)
+            for t in range(0,10*self.color_transition_duration):
+                x = t/(10.0*self.color_transition_duration)
+                self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
+                self.sleep(0.1)
+
             # enter a high stress period
-            rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume)
+            log_experimenter('(Subject%i: now in high stress period)' % self.client_idx)
             self.iconpresenterfunc(self.high_transition_icon)
             self.stress_level = self.high_stress_value
             duration = self.high_stress_duration()
             self.marker('State/Stress Level/%f, Participant/ID/%i' % (self.stress_level,self.client_idx))
             self.sleep(duration)
+
+            # fade to grey
+            rpyc.async(self.stimpresenter.sound)(filename = self.low_transition_sound, volume = self.low_transition_volume,sourcetype='ambient',override_id=17)
+            for t in range(0,10*self.color_transition_duration):
+                x = 1.0-(t/(10.0*self.color_transition_duration))
+                self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
+                self.sleep(0.1)
 
 
 class IndicatorLightTask(LatentModule):
@@ -1429,8 +1457,8 @@ class IndicatorLightTask(LatentModule):
 
                  # sound parameters
                  snd_hit='click2s.wav',                         # correct response to indicator light
-                 snd_miss='indicator_miss.wav',                 # missed response to indicator light
-                 snd_false='indicator_false.wav',               # false response to indicator light (while off or not focused)
+                 snd_miss='',#'indicator_miss.wav',                 # missed response to indicator light
+                 snd_false='',#'indicator_false.wav',               # false response to indicator light (while off or not focused)
                  no_score_sounds=False,                         # disable regular score sounds in favor of task-specific sounds
                  snd_params=None,                               # parameters for the sound command (dict)
 
@@ -1561,16 +1589,18 @@ class IndicatorLightTask(LatentModule):
         """ Subject misses to respond in time. """
         if self.focused and not ispause:
             self.marker('Participant/ID/%i, Experiment Control/Task/Missed Action' % self.client_idx)
+            log_experimenter('Subject%i missed warning light' % self.client_idx)
             self.scorecounter.score_event(self.miss_penalty,nosound=self.no_score_sounds)
-            rpyc.async(self.stimpresenter.sound)(self.snd_miss,**self.snd_params)
+            rpyc.async(self.stimpresenter.sound)(self.snd_miss,location='array',**self.snd_params)
 
     #noinspection PyUnusedLocal
     @livecoding
     def on_false_detection(self,evtype,t):
         """ Subject spuriously presses the response button. """
         self.marker('Participant/ID/%i, Experiment Control/Task/Incorrect Action' % self.client_idx)
+        log_experimenter('Subject%i false positive in warning light' % self.client_idx)
         self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds)
-        rpyc.async(self.stimpresenter.sound)(self.snd_false,**self.snd_params)
+        rpyc.async(self.stimpresenter.sound)(self.snd_false,location='array',**self.snd_params)
 
     #noinspection PyUnusedLocal
     @livecoding
@@ -1580,12 +1610,12 @@ class IndicatorLightTask(LatentModule):
             # the user correctly spots the warning event
             self.marker('Participant/ID/%i, Experiment Control/Task/Correct Action' % self.client_idx)
             self.scorecounter.score_event(self.hit_reward,nosound=self.no_score_sounds)
-            rpyc.async(self.stimpresenter.sound)(self.snd_hit,**self.snd_params)
+            rpyc.async(self.stimpresenter.sound)(self.snd_hit,location='array',**self.snd_params)
         else:
             # the user spotted it, but was not tasked to do so...
             self.marker('Participant/ID/%i, Experiment Control/Task/Incorrect Action' % self.client_idx)
             self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds)
-            rpyc.async(self.stimpresenter.sound)(self.snd_false,**self.snd_params)
+            rpyc.async(self.stimpresenter.sound)(self.snd_false,location='array',**self.snd_params)
 
 
 
@@ -1722,6 +1752,8 @@ class CommTask(LatentModule):
         with open(str(ConfigVariableSearchPath('model-path').findFile('media\\'+self.command_file)),'r') as f:
             for line in f:
                 parts = line.split('|')
+                if not len(parts) == 3:
+                    raise Exception('Error in line:' + line)
                 try:
                     self.sentences.append(parts[0].strip())
                     self.questions.append(parts[1].strip())
@@ -2185,7 +2217,7 @@ class SoundTask(LatentModule):
                  sound_volume = 0.5,                            # volume modifier of the sounds
                  querydomain='auditory',                        # domain where the query shall be presented
                  scoredomain='auditory',                        # the domain in which the scores should be counted
-                 probe_sound='sounds/xWhoopFlp.wav',            # optionally a sound file in lieu of the question
+                 probe_sound='xWhoopFlp.wav',            # optionally a sound file in lieu of the question
     ):
 
         LatentModule.__init__(self)
@@ -2256,7 +2288,7 @@ class SoundTask(LatentModule):
                 correct_answer=direction, all_answers=self.sound_directions.keys(),label=label, client_idx = self.client_idx)
 
             # emit the sound and onset marker
-            rpyc.async(self.stimpresenter.sound)(filename,direction=angle,volume=self.sound_volume,block=False)
+            rpyc.async(self.stimpresenter.sound)(filename,direction=angle,volume=self.sound_volume,block=False,location='array')
             if self.client_idx==0:
                 print "Now playing " + label + " on " + direction + "..."
             self.marker('Stimulus/Auditory/File/"%s", Stimulus/Auditory/Direction/%s, Experiment Control/Task/Sound Events/{identifier:%i|label:%s}, Participant/ID/%i' % (filename, direction.capitalize(), question.identifier, question.label, self.client_idx))
@@ -2583,15 +2615,15 @@ class ProbedObjectsTask(LatentModule):
 
                 if ent.is_visible[a] != strictly_visible:
                     ent.is_visible[a] = strictly_visible
-                    self.marker('Experiment Control/Task/Sidewalk Items/Becomes %s/{identifier:%i}, Participants/ID/%i' % ('Visible' if strictly_visible else 'Invisible',ent.identifier,a))
+                    self.marker('Experiment Control/Task/Sidewalk Items/Becomes %s/{identifier:%i}, Participant/ID/%i' % ('Visible' if strictly_visible else 'Invisible',ent.identifier,a))
 
                 # promote objects to candidacy for possible later questioning if they have been in plain sight for long enough
                 if distance < self.candidate_radius and strictly_visible:
                     if ent.has_been_clearly_visible_since[a] is None:
-                        self.marker('Stimulus/Visual/3D Object/%s, Experiment Control/Task/Sidewalk Items/Becomes Closely Visible/{identifier:%i}, Participants/ID/%i' % (ent.label,ent.identifier,a))
+                        self.marker('Stimulus/Visual/3D Object/%s, Experiment Control/Task/Sidewalk Items/Becomes Closely Visible/{identifier:%i}, Participant/ID/%i' % (ent.label,ent.identifier,a))
                         ent.has_been_clearly_visible_since[a] = time.time()
                     if time.time() - ent.has_been_clearly_visible_since[a] > self.candidate_visible_duration and not ent.has_generated_question[a] and not ent.is_candidate[a]:
-                        self.marker('Experiment Control/Task/Sidewalk Items/Becomes Question Candidate/{identifier:%i}, Participants/ID/%i' % (ent.identifier,a))
+                        self.marker('Experiment Control/Task/Sidewalk Items/Becomes Question Candidate/{identifier:%i}, Participant/ID/%i' % (ent.identifier,a))
                         ent.is_candidate[a] = True
                         # calculate on what side the stimulus was last sighted
                     diff = Vec3(ent.pos - apos)
@@ -2607,7 +2639,7 @@ class ProbedObjectsTask(LatentModule):
                     if ent.has_been_invisible_since[a] is None:
                         ent.has_been_invisible_since[a] = time.time()
                     if time.time() - ent.has_been_invisible_since[a] > self.drop_candidate_after and ent.is_candidate[a]:
-                        self.marker('Experiment Control/Task/Sidewalk Items/Dropped As Question Candidate/{identifier:%i}, Participants/ID/%i' % (ent.identifier,a))
+                        self.marker('Experiment Control/Task/Sidewalk Items/Dropped As Question Candidate/{identifier:%i}, Participant/ID/%i' % (ent.identifier,a))
                         ent.is_candidate[a] = False
                 else:
                     ent.has_been_invisible_since[a] = None
@@ -2625,17 +2657,18 @@ class ProbedObjectsTask(LatentModule):
                     direction = ent.last_visible_side[a]
 
                     if label in self.reportable_objects:
-                        self.marker('Experiment Control/Task/Sidewalk Items/Expecting Subject Report/{identifier:%i|label:%s}, Participants/ID/%i' % (ent.identifier,label,a))
+                        self.marker('Experiment Control/Task/Sidewalk Items/Expecting Subject Report/{identifier:%i|label:%s}, Participant/ID/%i' % (ent.identifier,label,a))
+
                         # this is a special reportable object: we expect a response from the subject
                         if self.waitfor('cl' + str(a) + '-report',duration=self.reportable_timeout):
                             # subject reponded in time
                             print str(time.time()) + ": subject responded in time to suspicious object"
-                            self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/Sidewalk Items/Reported Object/{identifier:%i}, Participants/ID/%i' % (ent.identifier,a))
+                            self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/Sidewalk Items/Reported Object/{identifier:%i}, Participant/ID/%i' % (ent.identifier,a))
                             self.report_scorecounters[a].score_event(self.gain_correct*self.reportable_score_multiplier,nosound=False)
                         else:
                             # failed to respond
                             print str(time.time()) + ": subject failed to respond to suspicious object"
-                            self.marker('Experiment Control/Task/Action/Missed, Experiment Control/Task/Sidewalk Items/Failed To Report Object/{identifier:%i}, Participants/ID/%i' % (ent.identifier,a))
+                            self.marker('Experiment Control/Task/Action/Missed, Experiment Control/Task/Sidewalk Items/Failed To Report Object/{identifier:%i}, Participant/ID/%i' % (ent.identifier,a))
                             self.report_scorecounters[a].score_event(self.loss_missed*self.reportable_score_multiplier)
                         ent.has_generated_question[a] = True
 
@@ -2654,7 +2687,7 @@ class ProbedObjectsTask(LatentModule):
                                     collision = True
                             if collision:
                                 ent.excluded_from_questions[a] = True
-                                self.marker('Experiment Control/Task/Sidewalk Items/Dropped Due To Ambiguity/{identifier:%i|label%s}, Participants/ID/%i' % (ent.identifier,ent.label,a))
+                                self.marker('Experiment Control/Task/Sidewalk Items/Dropped Due To Ambiguity/{identifier:%i|label%s}, Participant/ID/%i' % (ent.identifier,ent.label,a))
                                 continue
 
                             if random.random() > self.distractor_fraction:
@@ -2671,7 +2704,7 @@ class ProbedObjectsTask(LatentModule):
                                         correct_answer=direction, all_answers=['left','right'],label=label, client_idx=a)
 
                                 print "*** " + str(time.time()) + " issueing question for " + color + " " + label + " on " + direction + " side of the camera view"
-                                self.marker('Experiment Control/Task/Sidewalk Items/Generating Question/{item_identifier:%i|question_identifier:%i}, Participants/ID/%i' % (ent.identifier,question.identifier,a))
+                                self.marker('Experiment Control/Task/Sidewalk Items/Generating Question/{item_identifier:%i|question_identifier:%i}, Participant/ID/%i' % (ent.identifier,question.identifier,a))
 
                                 # actually present the query
                                 self.querypresenters[a].submit_question(
@@ -2690,7 +2723,7 @@ class ProbedObjectsTask(LatentModule):
                             else:
                                 # take this event as a distractor
                                 print "*** " + str(time.time()) + " generated distractor event for " + color + " " + label + " on " + direction + " side of the camera view"
-                                self.marker('Experiment Control/Task/Sidewalk Items/Take As Distractor/{item_identifier:%i|label:%s}, Participants/ID/%i' % (ent.identifier,ent.label,a))
+                                self.marker('Experiment Control/Task/Sidewalk Items/Take As Distractor/{item_identifier:%i|label:%s}, Participant/ID/%i' % (ent.identifier,ent.label,a))
                                 ent.excluded_from_questions[a] = True
 
                     else:
@@ -3657,7 +3690,7 @@ class ClientGame(SceneBase):
         """
 
         # start city ambient sound
-        self.ambience = self.sound(self.ambience_sound,looping=True,volume=self.ambience_volume,direction=0)
+        self.ambience = rpyc.async(self.remote_stimpresenter.sound)(self.ambience_sound,looping=True,volume=self.ambience_volume,direction=0,sourcetype='ambient',override_id=16)
         # initialize camera and 3d viewport
         self.init_viewport()
         # initialize static GUI symbols (as stand-ins for the tasks)
@@ -3811,7 +3844,7 @@ class ClientGame(SceneBase):
             counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.sound_score_args)
 
         # a stress modulation process (flips between high and low stress, keeps an indicator icon updated) 
-        self.stress_task = self.launch(StressTask(iconpresenterfunc=self.stress_indicator.submit, client_idx=self.num, **self.stress_task_args))
+        self.stress_task = self.launch(StressTask(iconpresenterfunc=self.stress_indicator.submit, stimpresenter=self.remote_stimpresenter, client_idx=self.num, **self.stress_task_args))
 
         # the object responsible for presenting queries to the subject
         self.querypresenter = QueryPresenter(
@@ -4021,6 +4054,7 @@ class ClientGame(SceneBase):
                 self.set_engine(base=self.conn.builtins.base,direct=self.conn.modules.direct,pandac=self.conn.modules.pandac.PandaModules)
                 # and get an instance of the remote basicstimuli instance, too
                 self.remote_stimpresenter = self.conn.root.stimpresenter()
+                self.remote_stimpresenter._oscplayer = self.num+1
                 # done.
                 print "done."
                 break
@@ -4156,7 +4190,7 @@ class Main(SceneBase):
         self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
 
         # misc
-        self.alert_sound = 'sounds/SysAlert.wav'                # the alert that is played to warn off hostile agents
+        self.alert_sound = 'SysAlert.wav'                # the alert that is played to warn off hostile agents
         self.initial_experimenter_camera_pos = (-500,-500,500)  # initial 3d position of the experimenter's camera
         self.initial_experimenter_camera_target = (0,0,0)       # initial target (look-at) point of the experimenter's camera
 
@@ -4166,7 +4200,8 @@ class Main(SceneBase):
         self.cam_angular_friction = 0.5                         # friction coefficient for inert camera movement
         self.cam_acceleration = 2                               # linear acceleration of the camera
         self.cam_turnrate = 1                                   # turn-rate of the camera
-        self.message_pos = (0.5,-0.6)                           # position of the scroll message presenter
+        self.message_pos = (0.5,0.6)                            # position of the experimenter's log
+        self.message_lines = 20                                 # number of lines in the experimenter's log
         self.score_pos = (1.5,0)                                # position of the score presenter
         self.checkpoint_height = 2                              # in meters above the ground
         self.camera_fov = 55                                    # in degrees: note that going too high here is risking motion sickness for the players
@@ -4231,9 +4266,9 @@ class Main(SceneBase):
         self.rise_altitude = 175                                # desired altitude below to which the vehicle exerts rising force
         self.rise_force = 0                                     # the current rising force (per meter of discrepancy between current altitude and desired altitude) 
         # (ramped up from 0 to max during the rise_time)
-        self.rise_force_max = 4                                 # maximum rising force (per meter... -- see above)
+        self.rise_force_max = 300                               # maximum rising force (per meter... -- see above)
         self.rise_force_offset = 0                              # the current offset to the rising force (ramped up from 0 to max during the rise_time)
-        self.rise_force_offset_max = 100                        # maximum offset of the rising force 
+        self.rise_force_offset_max = 2000                       # maximum offset of the rising force
         self.aerial_accel = 12000                               # horizontal acceleration of aerial vehicle
         self.aerial_turnrate = 100                              # turn-rate of aerial vehicle
         self.axis_stabilization = 100                           # axis stabililzation torque for aerial vehicle 
@@ -4272,7 +4307,7 @@ class Main(SceneBase):
         self.panwatch_duration = (240,360)                      # duration of the pan/watch mission
         self.pancam_wanderer_range = (200,200)                  # for the pan-the-cam mission, the x/y range around the subject within which the agents navigate (in meters)
         self.checkpoint_timeout = 10*60                         # timeout for the checkpoint missions, in seconds
-        self.checkpoint_count = (5,9)                           # number of checkpoints to go through
+        self.checkpoint_count = (4,7)                           # number of checkpoints to go through
         self.checkpoint_min_distance = 50                       # minimum direct distance between any two checkpoints on a tour
         self.checkpoint_max_distance = 200                      # maximum direct distance between any two successive checkpoints on a tour
         self.report_field_of_view = 30                          # the visual angle within which an agent has to be to count as reported (on pressing the button)
@@ -4566,7 +4601,8 @@ class Main(SceneBase):
         self.viewport = self.create_viewport(self.viewport_rect,self.camera)
 
         # add text presenters
-        self.message_presenter = ScrollPresenter.ScrollPresenter(pos=self.message_pos)
+        self.message_presenter = ScrollPresenter.ScrollPresenter(pos=self.message_pos,numlines=self.message_lines,autoclear=None,padding=5)
+        global experimenter_logger; experimenter_logger = self.message_presenter.submit
         self.score_presenter = TextPresenter.TextPresenter(pos=self.score_pos,framecolor=[0,0,0,0])
 
         # add experimenter camera controls
@@ -4787,7 +4823,10 @@ class Main(SceneBase):
                 pos = self.checkpoints[cp]
                 self.checkpoint.move_to(pos)
                 # while not succeeded...
-                while (self.agents[self.vehicle_idx].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance:
+                while True:
+                    dist = self.agents[self.vehicle_idx].getPos(self.city) - Point3(pos[0],pos[1],pos[2])
+                    if Vec3(dist.x,dist.y,dist.z*0.1).length() < self.checkpoint_accept_distance:
+                        break
                     self.sleep(1)
                     # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
@@ -4857,7 +4896,7 @@ class Main(SceneBase):
 
                     # update direct visibility properties (= in field of view)
                     if a.is_directly_visible[c] != directly_visible:
-                        self.marker('Experiment Control/Task/PanTheCam/Agent Becomes %s/{identifier:%i}, Participants/ID/%i' % ('Visible' if a.is_directly_visible[c] else 'Invisible',a.identifier,self.panning_idx))
+                        self.marker('Experiment Control/Task/PanTheCam/Agent Becomes %s/{identifier:%i}, Participant/ID/%i' % ('Visible' if a.is_directly_visible[c] else 'Invisible',a.identifier,self.panning_idx))
                         if a.is_directly_visible[c]:
                             # agent just became visible
                             a.directly_visible_since[c] = now
@@ -4886,11 +4925,11 @@ class Main(SceneBase):
                                             # then it's a genuine miss!
                                             if a.directly_visible_since[c] <= a.potentially_visible_since[c] and a.was_directly_visible_for[c] > self.short_spotting_cutoff:
                                                 # and it was directly visible for long enough during this encounter to be counted as a full-visible miss
-                                                self.marker('Experiment Control/Task/PanTheCam/Visible Agent Report Missed/{identifier:%i}, Participants/ID/%i' % (a.identifier,self.panning_idx))
+                                                self.marker('Experiment Control/Task/PanTheCam/Visible Agent Report Missed/{identifier:%i}, Participant/ID/%i' % (a.identifier,self.panning_idx))
                                                 self.clients[c].overall_score.score_event(self.pancam_missed_loss)
                                             else:
                                                 # it was never really in view so we don't penalize quite as badly
-                                                self.marker('Experiment Control/Task/PanTheCam/Invisible Agent Report Missed/{identifier:%i}, Participants/ID/%i' % (a.identifier,self.panning_idx))
+                                                self.marker('Experiment Control/Task/PanTheCam/Invisible Agent Report Missed/{identifier:%i}, Participant/ID/%i' % (a.identifier,self.panning_idx))
                                                 self.clients[c].overall_score.score_event(self.pancam_unseen_loss)
                             a.potentially_invisible_since[c] = now
                         a.is_potentially_visible[c] = potentially_visible
@@ -4946,8 +4985,11 @@ class Main(SceneBase):
                 pos = self.checkpoints[cp]
                 self.checkpoint.move_to(pos)
                 # while not succeeded...
-                while ((self.agents[0].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance) or\
-                      ((self.agents[1].getPos(self.city) - Point3(pos[0],pos[1],pos[2])).length() > self.checkpoint_accept_distance):
+                while True:
+                    dist1 = self.agents[0].getPos(self.city) - Point3(pos[0],pos[1],pos[2])
+                    dist2 = self.agents[1].getPos(self.city) - Point3(pos[0],pos[1],pos[2])
+                    if (Vec3(dist1.x,dist1.y,dist1.z*0.1).length() < self.checkpoint_accept_distance) and (Vec3(dist2.x,dist2.y,dist2.z*0.1).length() < self.checkpoint_accept_distance):
+                        break
                     # check if the agents are in fact staying together
                     distance = (self.agents[0].getPos(self.city) - self.agents[1].getPos(self.city)).length()
                     if  distance > self.staytogether_max_distance:
@@ -5025,8 +5067,9 @@ class Main(SceneBase):
                 # while not succeeded...
                 while True:
                     vehicle_pos = self.agents[self.vehicle_idx].getPos(self.city)
+                    dist = vehicle_pos - Point3(pos[0],pos[1],pos[2])
                     # check if we've reached the checkpoint
-                    if (vehicle_pos - Point3(pos[0],pos[1],pos[2])).length() < self.checkpoint_accept_distance:
+                    if Vec3(dist.x,dist.y,dist.z*0.1).length() < self.checkpoint_accept_distance:
                         break
                         # check if we bumped into a hostile
                     for a in self.wanderers:
@@ -5034,6 +5077,7 @@ class Main(SceneBase):
                         if line_of_sight(self.physics, a_pos, vehicle_pos, a.vel, src_maxsight=self.hostile_minimum_distance, src_fov=self.hostile_field_of_view) is not None and (time.time() - a.last_spotting_time[self.vehicle_idx]) > self.min_spotted_interval:
                             a.last_spotting_time[self.vehicle_idx] = time.time()
                             self.marker('Experiment Control/Task/Hint/Spotted By Hostile Wanderer')
+                            log_experimenter('Subject%i spotted by drone' % self.vehicle_idx)
                             self.clients[self.vehicle_idx].viewport_instructions.submit(self.clients[self.vehicle_idx].id + ', you have been spotted by a foreign drone!')
                             self.clients[self.aerial_idx].viewport_instructions.submit(self.clients[self.aerial_idx].id + ', your partner has been spotted by a foreign drone!')
                             self.update_score_both(self.spotted_penalty)
@@ -5362,7 +5406,7 @@ class Main(SceneBase):
                 self.vehicles[client].getChassis().setAngularDamping(self.aerial_angular_damping)
                 self.vehicles[client].getChassis().setLinearDamping(self.aerial_linear_damping)
                 # updrift
-                self.vehicles[client].getChassis().applyCentralImpulse(Vec3(0, 0, self.rise_force_offset + self.rise_force*max(0,(self.rise_altitude-p.getZ()))))
+                self.vehicles[client].getChassis().applyCentralForce(Vec3(0, 0, self.rise_force_offset + self.rise_force*max(0,(self.rise_altitude-p.getZ()))))
                 # axis stabilization
                 left = self.agents[client].getParent().getMat(render).getRow3(0)
                 left_planar = self.agents[client].getParent().getMat(render).getRow3(0)
@@ -5521,7 +5565,7 @@ class Main(SceneBase):
     @livecoding
     def broadcast_message(self,msg,no_callsign=False,mission=False,client=None):
         """ Send a text message to one or both clients. Optionally also present on the mission text screen."""
-        self.message_presenter.submit(msg)
+        log_experimenter(msg)
         if client is None:
             for cl in self.clients:
                 cl.viewport_instructions.submit(('' if no_callsign else cl.id + ', ') + msg)
@@ -5690,8 +5734,9 @@ class Main(SceneBase):
 
     @livecoding
     def on_pushtotalk(self,client):
-        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,block=False)
-        rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,block=False)
+        self.marker('Response/Button Press/Push To Talk')
+        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,location='headset',block=False)
+        rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,location='headset',block=False)
 
     @livecoding
     def on_client_report(self,c):
@@ -5715,17 +5760,19 @@ class Main(SceneBase):
                     # last report was long enough ago or the object had not been potentially visible since some time after the last report
                     if now - a.last_report_time[c] > self.double_report_cutoff or a.last_report_time[c] < a.potentially_invisible_since[c]:
                         # valid report
-                        self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
+                        self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participant/ID/%i' % (a.identifier,c))
                         score_delta += self.pancam_spotted_gain
                     else:
                         # reporting the same object in too short succession
-                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participants/ID/%i' % (a.identifier,c))
+                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participant/ID/%i' % (a.identifier,c))
+                        log_experimenter('Subject%i double-reported drone' % c)
                         score_delta += self.pancam_double_loss
                     a.last_report_time[c] = now
             if report_valid:
                 self.clients[c].overall_score.score_event(score_delta,nosound=False)
             else:
-                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participants/ID/%i' % c)
+                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participant/ID/%i' % c)
+                log_experimenter('Subject%i falsely reported drone' % c)
                 self.clients[c].overall_score.score_event(self.pancam_false_loss,nosound=False)
             self.last_report_press_time[c] = now
 
@@ -5738,7 +5785,7 @@ class Main(SceneBase):
         """ Callback when a client has pressed the "warn off" button. """
         self.marker('Response/Button Press/Warn Agents')
         v = self.agents[idx]
-        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False)
+        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,sourcetype='ambient')
         viewdir = v.getParent().getMat(self.city).getRow(1)
         num_warnedoff = 0
         num_alreadyretreating = 0
@@ -5793,7 +5840,9 @@ class Main(SceneBase):
             if self.last_modality == actual_speech:
                 self.same_modality_repeats += 1
                 if self.same_modality_repeats > self.max_same_modality_responses:
-                    self.clients[cl_idx].remote_stimpresenter.sound(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume)
+                    self.marker('Experiment Control/Too Many Repeats In Same Modality, Participant/ID/%i' % (cl_idx,))
+                    log_experimenter("Subject%i got a slap (too many %s responses)" % (cl_idx,'spoken' if actual_speech else 'button'))
+                    self.clients[cl_idx].remote_stimpresenter.sound(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume,location='array')
                     self.clients[cl_idx].overall_score.score_event(self.repeated_response_loss,nosound=True)
             else:
                 self.same_modality_repeats = 0

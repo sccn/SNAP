@@ -3,7 +3,8 @@ import direct.showbase
 import pandac.PandaModules
 import framework.eventmarkers.eventmarkers
 import math
-    
+from OSC import OSCClient,OSCMessage
+
 class BasicStimuli:
     """
     A class that provides convenience functions for displaying psychological-type stimuli.
@@ -31,8 +32,10 @@ class BasicStimuli:
         self.audio3d = None             # 3d audio manager, if needed
         self.implicit_markers = False   # whether to generate implicit markers
                                         # in write(), movie(), etc.
+        self.extensive_markers = True   # whether to emit extensive string markers
         self._to_destroy = []
-
+        self._oscclient = None          # osc client to use
+        self._oscplayer = 1             # target output device (1 or 2)
 
     def marker(self,markercode):
         """
@@ -66,7 +69,8 @@ class BasicStimuli:
               sort=0                    # sorting order of the text
               ):
         """Write a piece of text on the screen and keep it there for a particular duration."""
-        
+        if self.extensive_markers:
+            self.marker("BasicStimuli::write(text=%s)" % text)
         if align == 'left':
             align = self._engine.pandac.TextNode.ALeft
         elif align == 'right':
@@ -112,6 +116,8 @@ class BasicStimuli:
                   parent=None       # the renderer to use for displaying the object
                   ):        
         """Draw a crosshair."""
+        if self.extensive_markers:
+            self.marker("BasicStimuli::crosshair()")
         obj1 = self._engine.direct.gui.OnscreenImage.OnscreenImage(image='blank.tga',pos=(pos[0],0,pos[1]),scale=(size,1,width),color=color,parent=parent)
         self._to_destroy.append(obj1)
         obj1.setTransparency(self._engine.pandac.TransparencyAttrib.MAlpha)
@@ -148,7 +154,9 @@ class BasicStimuli:
                   depth=0,          # screen depth of the rectangle
                   ):
         """Draw a single-colored rectangle."""
-        
+        if self.extensive_markers:
+            self.marker("BasicStimuli::rectangle()")
+
         if duration == 0:
             block = False
         
@@ -186,7 +194,9 @@ class BasicStimuli:
               parent=None,          # the renderer to use for displaying the object
               ):
         """Display a frame on the screen and keep it there for a particular duration."""
-                
+        if self.extensive_markers:
+            self.marker("BasicStimuli::frame()")
+
         l=rect[0];r=rect[1];t=rect[2];b=rect[3]
         w=thickness[0];h=thickness[1]
         L = self._engine.direct.gui.OnscreenImage.OnscreenImage(image='blank.tga',pos=(l-w/2,0,(b+t)/2),scale=(w/2,1,w+(b-t)/2),color=color,parent=parent)
@@ -231,8 +241,10 @@ class BasicStimuli:
               color=None,               # the (r,g,b,a) coloring of the image
               parent=None,              # parent rendering context or Panda3d NodePath
               ):
-        """Display a picture on the screen and keep it there for a particular duration."""        
-        
+        """Display a picture on the screen and keep it there for a particular duration."""
+        if self.extensive_markers:
+            self.marker("BasicStimuli::picture(image=%s)" % image)
+
         if pos is not None and type(pos) not in (int,float) and len(pos) == 2:
             pos = (pos[0],0,pos[1])
         if scale is not None and type(scale) not in (int,float) and len(scale) == 2:
@@ -273,41 +285,124 @@ class BasicStimuli:
               looping=False,    # whether the sound should be looping; can be turned off by calling .stop() on the return value of this function
               loopcount=None,   # optionally the number of repeats if looping
               surround=False,   # if True, the direction will go from -Pi/2 to Pi/2
+              distance=1.0,
+              # parameters if playing through Peter Otto's Max/MSP asset manager
+              location='surround',  # can be 'surround' (wall speakers), 'array' (sound bars), or 'headset' (traditional Windows sound)
+              sourcetype='point',   # can be 'point' or 'ambient'
+              playerindex=None,     # can be 1, or 2, or None (in that case using default setting)
+              autostop=False,       # whether to issue an OSC stop command at end of track
+              override_id=None      # if this is not none, the sound will be assigned this ID
               ):
         """Play a sound in a particular location."""
-        if surround:            
-            if self.audio3d is None:
-                self.audio3d = self._engine.direct.showbase.Audio3DManager.Audio3DManager(self._engine.base.sfxManagerList[0],None)
-            obj = self.audio3d.loadSfx(filename)
-            self._to_destroy.append(obj)
-            obj.set3dAttributes(1.0*math.sin(direction),1.0*math.cos(direction),0.0,0.0,0.0,0.0)
-            obj.setVolume(volume)
+        if self.extensive_markers:
+            self.marker("BasicStimuli::sound(filename=%s)" % filename)
+        if not filename:
+            return
+        if playerindex is None:
+            playerindex = self._oscplayer
+
+        location = 'array'  # override destination system (TODO: remove once all is working!)
+        if self._oscclient is not None and (location=='surround' or location=='array'):
+            # play sound via Peter Otto's Max/MSP asset manager
+            oscclient = self._oscclient[location] # get the correct target machine IP based on playback location
+            projectname = oscclient.projectname
+
+            # get a "fresh" sound id (all involved computers are assigned non-overlapping ID ranges so they don't
+            # override each other's sounds plus one extra ID range for long-running sounds that are manually assigned
+            if override_id is not None:
+                id = override_id
+            else:
+                oscclient.current_source = oscclient.current_source + 1
+                id = oscclient.idrange[oscclient.current_source % len(oscclient.idrange)]
+
+            # transmit playback parameters
+            destination = "/"+projectname+"/"+location+"/"+str(playerindex)+"/"+sourcetype
+            msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
+            msg = OSCMessage(destination); msg += [id, "looping", int(looping)]; oscclient.send(msg)
+            msg = OSCMessage(destination); msg += [id, "pos",direction*180/3.1415,0.0,distance]; oscclient.send(msg)
+            msg = OSCMessage(destination); msg += [id, "speed",playrate]; oscclient.send(msg)
+            msg = OSCMessage(destination); msg += [id, "vol",volume]; oscclient.send(msg)
+
+            if timeoffset > 0:
+                print "Timeoffset is currently not supported in this interface"
+            if loopcount is not None:
+                print "Loopcount is currently not supported in this interface"
+
+            # determine the length of the file so we can block for the appropriate time (and later reclaim sound ID's)
+            obj = loader.loadSfx(filename)
+            length = obj.length()
+            if loopcount is not None:
+                length *= loopcount
+            if looping:
+                obj.setLoop(True)
+                length = 100000
+            if timeoffset > 0.0:
+                length -= timeoffset
+            length *= playrate
+            if loopcount is None:
+                loopcount = 1
+
+            msg = OSCMessage(destination); msg += [id, "play",timeoffset,loopcount]; oscclient.send(msg)
+
+            # instantiate a stopper object
+            class Stopper:
+                def __init__(self,client,id,destination,enabled):
+                    self.client = client
+                    self.id = id
+                    self.destination = destination
+                    self.enabled = enabled
+                def destroy(self):
+                    if self.enabled:
+                        msg = OSCMessage(self.destination); msg += [self.id, "stop"]; self.client.send(msg)
+                def stop(self):
+                    if self.enabled:
+                        msg = OSCMessage(self.destination); msg += [self.id, "stop"]; self.client.send(msg)
+
+            if self.implicit_markers:
+                self.marker(246)
+            if block:
+                self.sleep(length)
+                self._destroy_object(obj,247)
+                stopper = Stopper(oscclient,id,destination,autostop)
+                stopper.stop()
+            else:
+                taskMgr.doMethodLater(length, self._destroy_object, 'ConvenienceFunctions, end_sound', extraArgs=[None,247])
+                return Stopper(oscclient,id,destination,autostop)
+
         else:
-            obj = self._engine.base.loader.loadSfx(filename)
-            self._to_destroy.append(obj)
-            obj.setVolume(volume)
-            obj.setBalance(direction)
-        length = obj.length()
-        if loopcount is not None:
-            obj.setLoopCount(loopcount)
-            length *= loopcount
-        if looping:
-            obj.setLoop(True)
-            length = 100000
-        if timeoffset > 0.0:
-            obj.setTime(timeoffset)
-            length -= timeoffset
-        obj.setPlayRate(playrate)
-        length *= playrate
-        obj.play()
-        if self.implicit_markers:
-            self.marker(246)
-        if block:
-            self.sleep(length)
-            self._destroy_object(obj,247)            
-        else:
-            self._engine.base.taskMgr.doMethodLater(length, self._destroy_object, 'ConvenienceFunctions, end_sound', extraArgs=[None,247])
-            return obj
+            if surround:
+                if self.audio3d is None:
+                    self.audio3d = self._engine.direct.showbase.Audio3DManager.Audio3DManager(self._engine.base.sfxManagerList[0],None)
+                obj = self.audio3d.loadSfx(filename)
+                self._to_destroy.append(obj)
+                obj.set3dAttributes(1.0*math.sin(direction),1.0*math.cos(direction),0.0,0.0,0.0,0.0)
+                obj.setVolume(volume)
+            else:
+                obj = self._engine.base.loader.loadSfx(filename)
+                self._to_destroy.append(obj)
+                obj.setVolume(volume)
+                obj.setBalance(direction)
+            length = obj.length()
+            if loopcount is not None:
+                obj.setLoopCount(loopcount)
+                length *= loopcount
+            if looping:
+                obj.setLoop(True)
+                length = 100000
+            if timeoffset > 0.0:
+                obj.setTime(timeoffset)
+                length -= timeoffset
+            obj.setPlayRate(playrate)
+            length *= playrate
+            obj.play()
+            if self.implicit_markers:
+                self.marker(246)
+            if block:
+                self.sleep(length)
+                self._destroy_object(obj,247)
+            else:
+                self._engine.base.taskMgr.doMethodLater(length, self._destroy_object, 'ConvenienceFunctions, end_sound', extraArgs=[None,247])
+                return obj
 
 
     def movie(self,
@@ -337,6 +432,8 @@ class BasicStimuli:
               bordercolor=(0,0,0,0),    # the border color of the movie texture (only visible when the contentoffset and contentscale are used
               ):
         """Play a movie. Note: Sound for movies only works with OpenAL (rather than FMOD) -- see documentation at http://www.panda3d.org/manual/index.php/Sound on how to select it."""
+        if self.extensive_markers:
+            self.marker("BasicStimuli::movie(filename=%s)" % filename)
 
         # load the sound track if there is one
         try:

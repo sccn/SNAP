@@ -40,7 +40,7 @@ class Main(LatentModule):
         self.last_u = 0
         self.last_v = 0
         self.last_buttons = ()
-        
+
     def run(self):
         moduleself = self
         
@@ -101,6 +101,7 @@ class Main(LatentModule):
         time.sleep(0.025)
         
     def on_keydown(self, keyname):
+        self.marker('Response/Button Press/Keyboard/%s' % keyname)
         if self.callbacks_connected:
             self.keydown_mastercallback(keyname)
 

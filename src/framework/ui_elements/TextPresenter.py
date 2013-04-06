@@ -54,6 +54,7 @@ class TextPresenter(MessagePresenter):
         self.text_nodepath.setPos(pos[0],0,pos[1])
 
     def _present(self,message):
+        self.marker("TextPresenter::_present(%s)" % message)
         try:
             pos = self.pos
             self.text_nodepath.setPos(pos[0],0,pos[1])

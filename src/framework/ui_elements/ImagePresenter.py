@@ -44,6 +44,7 @@ class ImagePresenter(MessagePresenter):
         self.icon.setTransparency(TransparencyAttrib.MAlpha)
 
     def _present(self,message):
+        self.marker("ImagePresenter::_present(%s)" % message)
         self.icon.setImage(message.strip())
         self.icon.setTransparency(TransparencyAttrib.MAlpha)
         # select remaining properties randomly, if applicable            

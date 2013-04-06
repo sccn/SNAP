@@ -24,14 +24,15 @@ class Main(LatentModule):
         # countdown
         for k in [3,2,1]:
             self.write(str(k),1,scale=0.2)
-        
+
         all_reaction_times = []
         for k in range(self.trials):
             # wait for a random interval between 2 and 5 seconds
             self.sleep(random.uniform(2,5))
             # show the crosshair and keep it
             self.crosshair(duration=3,block=False)            
-            rt = self.watchfor('enter',3)            
+            #rt = self.watchfor('enter',3)
+            rt = 0
             if not rt:
                 self.write('Timeout! You didn''t make it.',2,fg=(1,0,0,1))
             elif len(rt) > 1:
@@ -41,5 +42,4 @@ class Main(LatentModule):
                 all_reaction_times.append(rt[0])
 
         self.write('Your average reaction time was %g seconds.\nHit the space bar to end the experiment.' % (sum(all_reaction_times)/len(all_reaction_times)),'space')
-        
-    
+

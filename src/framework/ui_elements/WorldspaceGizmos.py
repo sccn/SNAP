@@ -1,5 +1,6 @@
 import direct.gui.OnscreenImage
 from pandac.PandaModules import *
+from framework.eventmarkers.eventmarkers import send_marker
 
 def create_worldspace_gizmo(
         position=(0,0,0),               # where to create the gizmo
@@ -13,6 +14,7 @@ def create_worldspace_gizmo(
         engine=None,                    # engine to use to create the gizmo
         billboard=True):                # whether to enable an automatic billboard effect (turn toward camera)
     """Utility to create a gizmo billboard that visually indicates a world-space location."""
+    send_marker("create_worldspace_gizmo(image=%s)" % image)
     gizmo = direct.gui.OnscreenImage.OnscreenImage(image = image, pos=tuple(position), hpr=hpr, scale=0, color=color, parent=parent)
     for c in camera_mask:
         gizmo.hide(BitMask32.bit(c))
@@ -35,6 +37,7 @@ def destroy_worldspace_gizmo(gizmo):
 
 def create_worldspace_instance(model=None,position=(0,0,0),color=(1,1,1,0.75),scale=1.0,hpr=(0,0,0),parent=None,name='WorldspaceInstance'):
     """Utility to create a worldspace instance with a particular location, scale and color."""
+    send_marker("create_worldspace_instance(name=%s)" % name)
     inst = parent.attachNewNode(name)
     inst.setPos(position[0],position[1],position[2])
     inst.setHpr(hpr[0],hpr[1],hpr[2])
