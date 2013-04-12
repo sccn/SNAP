@@ -16,5 +16,5 @@ show-frame-rate-meter #t
 
 #audio-library-name p3openal_audio # uncomment this if your movies play back without audio (note: this library can be slower than the default)
 audio-library-name p3fmod_audio
-# fmod-use-asio #t
-#fmod-use-surround-sound #f
+#fmod-use-asio #t
+#fmod-use-surround-sound #f.

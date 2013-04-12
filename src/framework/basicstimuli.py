@@ -320,7 +320,6 @@ class BasicStimuli:
 
             msg = OSCMessage(destination); msg += [id, "vol",volume]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
-            msg = OSCMessage(destination); msg += [id, "looping", int(looping)]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "pos",direction*180/3.1415,0.0,distance]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "speed",playrate]; oscclient.send(msg)
 

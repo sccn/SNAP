@@ -40,7 +40,7 @@ from __future__ import with_statement
 import optparse, sys, os, fnmatch, traceback, time
 from framework.OSC import OSCClient, OSCMessage
 
-SNAP_VERSION = '1.01'
+SNAP_VERSION = '1.02'
 
 
 # -----------------------------------------------------------------------------------------
@@ -100,7 +100,7 @@ COMPENSATE_LOST_TIME = True
 COM_PORT = 0
 
 # Whether to use OSC for sound playback
-OSC_SOUND = True
+OSC_SOUND = False
 
 # these are the IP addresses for the involved OSC machines
 OSC_MACHINE_IP =  {"array":"10.0.0.105", "surround":"10.0.0.108"} #{"array":"10.0.0.105"} #{"array":"10.0.0.105", "surround":"10.0.0.108"} # {"surround":"10.0.0.108"} # {"array":"10.0.0.105"} # {"array":"10.0.0.105", "surround":"10.0.0.106"}
