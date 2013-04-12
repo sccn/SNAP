@@ -1,6 +1,7 @@
 from framework.latentmodule import LatentModule
 from direct.gui.DirectGui import DirectButton
 #from direct.gui.DirectGuiGlobals import RIDGE
+from __future__ import with_statement
 from panda3d.core import NodePath
 from panda3d.core import TextProperties, TextPropertiesManager
 import random

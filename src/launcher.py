@@ -36,6 +36,7 @@ The SNAP experiment launcher program. To be run on the subject's PC.
 * For quick-and-dirty testing you may also override the launch options below under "Default Launcher Configuration", but note that you cannot check these changes back into the main source repository of SNAP.  
     
 '''
+from __future__ import with_statement
 import optparse, sys, os, fnmatch, traceback, time
 from framework.OSC import OSCClient, OSCMessage
 
@@ -57,7 +58,7 @@ AUTO_LAUNCH = True
 
 # The directory in which to look for .cfg files, if passed as module or via
 # remote control messages.
-STUDYPATH = "studies\SampleStudy" 
+STUDYPATH = "studies/SampleStudy"
 
 # The default engine configuration.
 ENGINE_CONFIG = "defaultsettings.prc"
@@ -99,10 +100,10 @@ COMPENSATE_LOST_TIME = True
 COM_PORT = 0
 
 # Whether to use OSC for sound playback
-OSC_SOUND = False
+OSC_SOUND = True
 
 # these are the IP addresses for the involved OSC machines
-OSC_MACHINE_IP = {"array":"10.0.0.105", "surround":"10.0.0.106"}
+OSC_MACHINE_IP =  {"array":"10.0.0.105", "surround":"10.0.0.108"} #{"array":"10.0.0.105"} #{"array":"10.0.0.105", "surround":"10.0.0.108"} # {"surround":"10.0.0.108"} # {"array":"10.0.0.105"} # {"array":"10.0.0.105", "surround":"10.0.0.106"}
 
 
 # ------------------------------
@@ -147,7 +148,7 @@ parser.add_option("--comport", dest="comport", default=COM_PORT,
                   help="The COM port over which to send markers, or 0 if disabled.")
 parser.add_option("-x","--xoscsound", dest="oscsound", default=OSC_SOUND,
                   help="Use OSC for sound playback.")
-parser.add_option("-i","--idosc", dest="idosc", default=0,
+parser.add_option("-i","--idosc", dest="idosc", default='0',
                   help="The OSC client ID (determines which sound ID range it gets).")
 (opts,args) = parser.parse_args()
 
@@ -230,7 +231,7 @@ if opts.oscsound:
                 # load the default preset
                 msg = OSCMessage("/"+oscclient[m].projectname+"/system"); msg += ["preset", 1]; oscclient[m].send(msg)
             print "success."
-        except Exception as e:
+        except Exception, e:
             print "failed:" + e
 
 global is_running
@@ -376,7 +377,7 @@ class MainApp(ShowBase):
             print "Pruning current module's resources...",
             try:
                 self._instance.prune()
-            except Exception as inst:
+            except Exception, inst:
                 print "Exception during prune:"
                 print inst
             print 'done.'
@@ -422,7 +423,7 @@ class MainApp(ShowBase):
                 from framework.console.interactiveConsole import pandaConsole, INPUT_CONSOLE, INPUT_GUI, OUTPUT_PYTHON
                 self._console = pandaConsole(INPUT_CONSOLE|INPUT_GUI|OUTPUT_PYTHON, self._instance.__dict__)
                 print "done."
-            except Exception as inst:
+            except Exception, inst:
                 print "failed:"
                 print inst
 

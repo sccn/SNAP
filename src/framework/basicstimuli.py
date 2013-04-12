@@ -301,7 +301,7 @@ class BasicStimuli:
         if playerindex is None:
             playerindex = self._oscplayer
 
-        location = 'array'  # override destination system (TODO: remove once all is working!)
+        #location = 'surround'  # override destination system (TODO: remove once all is working!)
         if self._oscclient is not None and (location=='surround' or location=='array'):
             # play sound via Peter Otto's Max/MSP asset manager
             oscclient = self._oscclient[location] # get the correct target machine IP based on playback location
@@ -317,11 +317,12 @@ class BasicStimuli:
 
             # transmit playback parameters
             destination = "/"+projectname+"/"+location+"/"+str(playerindex)+"/"+sourcetype
+
+            msg = OSCMessage(destination); msg += [id, "vol",volume]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "looping", int(looping)]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "pos",direction*180/3.1415,0.0,distance]; oscclient.send(msg)
             msg = OSCMessage(destination); msg += [id, "speed",playrate]; oscclient.send(msg)
-            msg = OSCMessage(destination); msg += [id, "vol",volume]; oscclient.send(msg)
 
             if timeoffset > 0:
                 print "Timeoffset is currently not supported in this interface"

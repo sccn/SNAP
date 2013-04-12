@@ -419,7 +419,7 @@ class LatentModule(framework.tickmodule.TickModule, framework.basicstimuli.Basic
                     # invoke tick
                     t.tick()
 
-        except Exception as inst:
+        except Exception, inst:
             print "Exception during tick():"
             print inst
             traceback.print_exc()

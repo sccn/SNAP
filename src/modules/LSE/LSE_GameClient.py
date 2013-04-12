@@ -8,7 +8,7 @@ import framework.ui_elements.ScrollPresenter, framework.ui_elements.TextPresente
 import direct.gui.OnscreenImage
 try:
     import framework.speech_io.speech
-except Exception as e:
+except Exception, e:
     print "Could not import speech IO: ", e
 
 #

@@ -1,3 +1,4 @@
+from __future__ import with_statement
 from framework.latentmodule import LatentModule
 from panda3d.core import TextProperties, TextPropertiesManager
 import random

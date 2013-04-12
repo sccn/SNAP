@@ -1,3 +1,4 @@
+from __future__ import with_statement
 from framework.convenience import ConvenienceFunctions
 from framework.deprecated.controllers import VideoScheduler, CheckpointDriving, MathScheduler, AudioRewardLogic, VisualSearchTask
 from framework.latentmodule import LatentModule

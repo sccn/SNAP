@@ -17,6 +17,7 @@
 
 
 # Panda3d
+from __future__ import with_statement
 from direct.task.TaskManagerGlobal import taskMgr
 from direct.task import Task
 from pandac.PandaModules import Vec3, Vec4, Mat4, Point3, BitMask32, PNMImage, Camera, NodePath, WindowProperties, GeomVertexReader, ConfigVariableSearchPath, TransparencyAttrib, TransformState, VBase4
@@ -75,7 +76,7 @@ def livecoding(fn):
         except LatentModule.ModuleCancelled:
             # don't hickup if this exception is due to the experimenter cancelling the run
             pass
-        except Exception as e:
+        except Exception, e:
             # got a regular exception: display it, but eat it
             print "Exception " + str(e) + " in " + fn.__name__
             try:
@@ -687,7 +688,9 @@ class ScoreCounter(BasicStimuli):
                  riser_duration = 2,                  # duration for which the riser is shown
                  riser_fontsize = 0.07,               # font size of the text
 
-                 dependent_score = None               # optionally a dependent score counter that shall aslo be updated
+                 dependent_score = None,              # optionally a dependent score counter that shall aslo be updated
+                 multiplier_func = None               # optionally a function that returns a score multiplier (e.g., for the stress level)
+                                                      # does not apply to dependent score counters
     ):
         BasicStimuli.__init__(self)
         if not sound_params:
@@ -741,6 +744,7 @@ class ScoreCounter(BasicStimuli):
         self.enable_risers = enable_risers
 
         self.dependent_score = dependent_score
+        self.multiplier_func = multiplier_func
 
         self._is_failure = False
 
@@ -766,11 +770,14 @@ class ScoreCounter(BasicStimuli):
 
     @livecoding
     def score_event(self,
-                    delta,              # relative score (can be negative)
+                    rawdelta,           # relative score (can be negative)
                     nosound=True):      # if true, the ding/buzz sounds are disabled -- the critical sounds (failure/recovery) are unaffected by this
         """ Handle a score update. """
         if ispause:
             return
+        delta = rawdelta
+        if self.multiplier_func:
+            delta = delta * self.multiplier_func()
         self.marker('Stimulus/Feedback/%s/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % ('Reward' if delta>0 else 'Penalty', delta, self.counter_name, self.client_idx))
         self.score_log.write('%s %s [player %i]: score %i+%i -> %i\n' % (time.asctime(),self.counter_name,self.client_idx,self.score,delta,self.score+delta))
         self.score = self.score+delta
@@ -792,7 +799,7 @@ class ScoreCounter(BasicStimuli):
         self.update_graphics()
         # handle dependent counters
         if self.dependent_score:
-            self.dependent_score.score_event(delta,nosound=True)
+            self.dependent_score.score_event(rawdelta,nosound=True)
 
     # === graphics code ===
 
@@ -1274,7 +1281,7 @@ class AttentionSetManager(LatentModule):
                     self.indicators[regionname](1)
                 for regionname in set(self.region_names).difference(set(self.active_regions)):
                     self.indicators[regionname](0)
-            except Exception as e:
+            except Exception, e:
                 print e
                 traceback.print_exc()
                 send_marker('Experiment Control/Status/Error/%s' % (str(e),))
@@ -1395,6 +1402,9 @@ class StressTask(LatentModule):
         self.disabled = False    # whether the task is temporarily disabled
         self.setcolor = rpyc.async(self.stimpresenter._engine.base.win.setClearColor)
 
+    def get_stress_level(self):
+        return self.stress_level
+
     def run(self):
         self.log_setup_parameters()
         while True:
@@ -1414,7 +1424,7 @@ class StressTask(LatentModule):
                 continue
 
             # fade to red
-            rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume,sourcetype='ambient',override_id=17)
+            rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume,sourcetype='ambient',location='surround',override_id=17)
             for t in range(0,10*self.color_transition_duration):
                 x = t/(10.0*self.color_transition_duration)
                 self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
@@ -1429,7 +1439,7 @@ class StressTask(LatentModule):
             self.sleep(duration)
 
             # fade to grey
-            rpyc.async(self.stimpresenter.sound)(filename = self.low_transition_sound, volume = self.low_transition_volume,sourcetype='ambient',override_id=17)
+            rpyc.async(self.stimpresenter.sound)(filename = self.low_transition_sound, volume = self.low_transition_volume,sourcetype='ambient',location='surround',override_id=17)
             for t in range(0,10*self.color_transition_duration):
                 x = 1.0-(t/(10.0*self.color_transition_duration))
                 self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
@@ -2051,7 +2061,7 @@ class SatmapTask(BasicStimuli):
                     # remove it from screen
                     try:
                         self.satmap_icon_remover_func(self.current_icons[idx])
-                    except Exception as e:
+                    except Exception, e:
                         print time.time(), ": Got an async timeout result while trying to delete a satmap item:", e
 
                     # stimulus offset marker
@@ -3690,7 +3700,7 @@ class ClientGame(SceneBase):
         """
 
         # start city ambient sound
-        self.ambience = rpyc.async(self.remote_stimpresenter.sound)(self.ambience_sound,looping=True,volume=self.ambience_volume,direction=0,sourcetype='ambient',override_id=16)
+        self.ambience = rpyc.async(self.remote_stimpresenter.sound)(self.ambience_sound,looping=True,volume=self.ambience_volume,direction=0,location='surround',sourcetype='ambient',override_id=16)
         # initialize camera and 3d viewport
         self.init_viewport()
         # initialize static GUI symbols (as stand-ins for the tasks)
@@ -3758,7 +3768,7 @@ class ClientGame(SceneBase):
             pos=self.stress_pos,scale=self.stress_size))
         # textbox for text communications (radio chatter)
         self.text_communications_presenter = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.ScrollPresenter.ScrollPresenter(
-            pos=self.comm_message_pos,width=self.comm_message_width,numlines=self.comm_message_height,scale=0.025,prompt = "           > "))
+            pos=self.comm_message_pos,width=self.comm_message_width,numlines=self.comm_message_height,scale=0.025,prompt = "  > "))
         # audio presenter for auditory comm chatter
         self.vocal_communications_presenter = rpyc.enable_async_methods(self.conn.modules.framework.ui_elements.AudioPresenter.AudioPresenter(
             direction=0.0,volume=self.vocal_communications_volume))
@@ -3829,22 +3839,23 @@ class ClientGame(SceneBase):
     def init_subtasks(self):
         """ Start the side tasks for this client. """
 
-        # create various score counters
-        self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
-            counter_name='Overall', client_idx=self.num, bar_vertical_squish=1, **self.overall_score_args)
-        self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
-            counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.satmap_score_args)
-        self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
-            counter_name='Viewport', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.viewport_score_args)
-        self.text_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
-            counter_name='Text', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.textcomm_score_args)
-        self.audio_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
-            counter_name='Chatter', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.audiocomm_score_args)
-        self.sounds_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
-            counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), dependent_score=self.overall_score, **self.sound_score_args)
-
-        # a stress modulation process (flips between high and low stress, keeps an indicator icon updated) 
+        # a stress modulation process (flips between high and low stress, keeps an indicator icon updated)
         self.stress_task = self.launch(StressTask(iconpresenterfunc=self.stress_indicator.submit, stimpresenter=self.remote_stimpresenter, client_idx=self.num, **self.stress_task_args))
+
+        # create various score counters
+        stress_multiplier = lambda: self.stress_task.get_stress_level()
+        self.overall_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
+            counter_name='Overall', client_idx=self.num, bar_vertical_squish=1, multiplier_func=stress_multiplier, **self.overall_score_args)
+        self.satmap_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
+            counter_name='Satmap', client_idx=self.num, text_color=(1,1,1,0), multiplier_func=stress_multiplier, dependent_score=self.overall_score, **self.satmap_score_args)
+        self.viewport_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
+            counter_name='Viewport', client_idx=self.num, text_color=(1,1,1,0), multiplier_func=stress_multiplier, dependent_score=self.overall_score, **self.viewport_score_args)
+        self.text_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
+            counter_name='Text', client_idx=self.num, text_color=(1,1,1,0), multiplier_func=stress_multiplier, dependent_score=self.overall_score, **self.textcomm_score_args)
+        self.audio_comm_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
+            counter_name='Chatter', client_idx=self.num, text_color=(1,1,1,0), multiplier_func=stress_multiplier, dependent_score=self.overall_score, **self.audiocomm_score_args)
+        self.sounds_score=ScoreCounter(stimpresenter=self.remote_stimpresenter, score_log=self.master.scorelog,
+            counter_name='Sounds', client_idx=self.num, text_color=(1,1,1,0), multiplier_func=stress_multiplier, dependent_score=self.overall_score, **self.sound_score_args)
 
         # the object responsible for presenting queries to the subject
         self.querypresenter = QueryPresenter(
@@ -4831,7 +4842,7 @@ class Main(SceneBase):
                     # checkpoint was reached
                 self.marker('Experiment Control/Task/Checkpoint/Reached')
                 self.clients[self.vehicle_idx].viewport_instructions.submit('You have successfully reached the checkpoint!')
-                self.clients[self.vehicle_idx].overall_score.score_event(self.checkpoint_reach_bonus*self.clients[self.vehicle_idx].stress_task.stress_level)
+                self.clients[self.vehicle_idx].overall_score.score_event(self.checkpoint_reach_bonus)
                 self.sleep(3)
         finally:
             # cleanup
@@ -5553,14 +5564,14 @@ class Main(SceneBase):
     def update_score_periodic(self,delta,client_ids,task):
         """ Periodically update the score for a subset of clients by a given delta. """
         for c in client_ids:
-            self.clients[c].overall_score.score_event(delta*self.clients[c].stress_task.stress_level,nosound=True)
+            self.clients[c].overall_score.score_event(delta,nosound=True)
         return task.again
 
     @livecoding
     def update_score_both(self,delta):
         """ Update the score of both clients. """
         for cl in self.clients:
-            cl.overall_score.score_event(delta*cl.stress_task.stress_level)
+            cl.overall_score.score_event(delta)
 
     @livecoding
     def broadcast_message(self,msg,no_callsign=False,mission=False,client=None):
@@ -5785,7 +5796,7 @@ class Main(SceneBase):
         """ Callback when a client has pressed the "warn off" button. """
         self.marker('Response/Button Press/Warn Agents')
         v = self.agents[idx]
-        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,sourcetype='ambient')
+        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,location='surround',sourcetype='ambient')
         viewdir = v.getParent().getMat(self.city).getRow(1)
         num_warnedoff = 0
         num_alreadyretreating = 0

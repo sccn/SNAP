@@ -2,6 +2,7 @@
 # 
 #
 #
+from __future__ import with_statement
 from framework.deprecated.controllers import CommScheduler, CheckpointDriving, VisualSearchTask
 
 from framework.latentmodule import LatentModule
