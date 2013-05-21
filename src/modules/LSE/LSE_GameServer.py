@@ -40,7 +40,7 @@ import random, time, threading, math, traceback, itertools
 
 
 # magic constants
-server_version = '0.4'      # displayed to the experimenter so he/she can keep track of versions
+server_version = '0.5'      # displayed to the experimenter so he/she can keep track of versions
 max_duration = 500000       # the maximum feasible duration (practically infinity)
 max_agents = 20             # maximum number of simultaneous AI-controlled agents
 screen_shuffle = [1,2,3]    # the order of the screen indices from left to right (for handedness switch or random permutation)
@@ -630,6 +630,8 @@ def grid(scr=1,               # 1-based index of the screen (1/2/3)
 
     raise Exception('Unknown coordinate system: ' + sys)
 
+_event_tag_generator = itertools.count(1)   # a generator to assign experiment-wide unique id's to events (mostly stimuli)
+
 
 # =========================================
 # === EXPERIMENT SUBTASK INFRASTRUCTURE ===
@@ -752,6 +754,7 @@ class ScoreCounter(BasicStimuli):
         self.riser = None                       # this is the rising score indicator (initially transparent = invisible)
         self.riser_period_start = None          # the time at which the currently ongoing rise period started, or None if not ongoing
         self.riser_delta = 0                    # the score delta indicated by the riser (determines color)
+        self.remote_marker = rpyc.async(self._stimpresenter.marker)
 
         # open the score log
         self.marker('Experiment Control/Task/Scoring/Initial/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.score, self.counter_name, self.client_idx))
@@ -772,23 +775,27 @@ class ScoreCounter(BasicStimuli):
     @livecoding
     def score_event(self,
                     rawdelta,           # relative score (can be negative)
-                    nosound=True):      # if true, the ding/buzz sounds are disabled -- the critical sounds (failure/recovery) are unaffected by this
+                    nosound=True,       # if true, the ding/buzz sounds are disabled -- the critical sounds (failure/recovery) are unaffected by this
+                    tag=None):          # optionally override the event tag
         """ Handle a score update. """
         if ispause:
             return
         delta = rawdelta
         if self.multiplier_func:
             delta = delta * self.multiplier_func()
-        self.marker('Stimulus/Feedback/%s/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % ('Reward' if delta>0 else 'Penalty', delta, self.counter_name, self.client_idx))
+
+        if tag is None:
+            tag = next(_event_tag_generator)
+        self.marker('Stimulus/Feedback/%s/%i Points, Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i, Experiment Control/Synchonization/Tag/%s' % ('Reward' if delta>0 else 'Penalty', delta, self.counter_name, self.client_idx,tag))
         self.score_log.write('%s %s [player %i]: score %i+%i -> %i\n' % (time.asctime(),self.counter_name,self.client_idx,self.score,delta,self.score+delta))
         self.score = self.score+delta
         # failure condition
         if self.score <= self.fail_level and not self._is_failure:
             self._is_failure = True
-            self.play_failure()
+            self.play_failure(tag)
         if self.score >= self.critical_level and self._is_failure:
             self._is_failure = False
-            self.play_recovery()
+            self.play_recovery(tag)
         # display
         if not nosound:
             self.play_delta_sounds(delta)
@@ -797,7 +804,7 @@ class ScoreCounter(BasicStimuli):
             self.riser_delta = delta
             self.riser.setText(str(delta) if delta < 0 else ('+' + str(delta)))
             self.riser_period_start = time.time()
-        self.update_graphics()
+        self.update_graphics(tag)
         # handle dependent counters
         if self.dependent_score:
             self.dependent_score.score_event(rawdelta,nosound=True)
@@ -824,7 +831,7 @@ class ScoreCounter(BasicStimuli):
             taskMgr.add(self.update_riser,'UpdateRiser')
 
     @livecoding
-    def update_graphics(self):
+    def update_graphics(self,tag):
         """ Update the graphics of the score counter. """
         col = self.cur_color()
         self._bar_indicator.setColor(col[0],col[1],col[2],col[3])
@@ -834,6 +841,7 @@ class ScoreCounter(BasicStimuli):
             self._text.setFg((self.text_color_negative[0],self.text_color_negative[1],self.text_color_negative[2],self.text_color_negative[3]))
         else:
             self._text.setFg((self.text_color[0],self.text_color[1],self.text_color[2],self.text_color[3]))
+        self.remote_marker('Experiment Control/Synchonization/Tag/%s' % tag)
 
     @livecoding
     def update_riser(self,task):
@@ -891,28 +899,30 @@ class ScoreCounter(BasicStimuli):
     @livecoding
     def play_gain(self,task):
         """ Play the gain sound. """
-        rpyc.async(self._stimpresenter.sound)(self.gain_file,volume=self.gain_volume,location='array',**self.sound_params)
-        self.marker('Stimulus/Auditory/Reward, Stimulus/Auditory/Sound File/"%s", Participant/ID/%i' % (self.gain_file, self.client_idx))
+        tag=next(_event_tag_generator)
+        rpyc.async(self._stimpresenter.sound)(self.gain_file,volume=self.gain_volume,location='array',tag=tag,**self.sound_params)
+        self.marker('Stimulus/Auditory/Reward, Stimulus/Auditory/Sound File/"%s", Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (self.gain_file, self.client_idx,tag))
         return task.done
 
     @livecoding
     def play_loss(self,task):
         """ Play the loss sound. """
-        rpyc.async(self._stimpresenter.sound)(self.loss_file,volume=self.loss_volume,location='array',**self.sound_params)
-        self.marker('Stimulus/Auditory/Penalty, Stimulus/Auditory/Sound File/"%s", Participant/ID/%i' % (self.loss_file, self.client_idx))
+        tag=next(_event_tag_generator)
+        rpyc.async(self._stimpresenter.sound)(self.loss_file,volume=self.loss_volume,location='array',tag=tag,**self.sound_params)
+        self.marker('Stimulus/Auditory/Penalty, Stimulus/Auditory/Sound File/"%s", Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (self.loss_file, self.client_idx,tag))
         return task.done
 
     @livecoding
-    def play_failure(self):
+    def play_failure(self,tag):
         """ Play the failure sound. """
-        rpyc.async(self._stimpresenter.sound)(self.failure_file,volume=self.failure_volume,location='array',**self.sound_params)
-        self.marker('Stimulus/Auditory/Failure, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.failure_file, self.counter_name, self.client_idx))
+        rpyc.async(self._stimpresenter.sound)(self.failure_file,volume=self.failure_volume,location='array',tag=tag,**self.sound_params)
+        self.marker('Stimulus/Auditory/Failure, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (self.failure_file, self.counter_name, self.client_idx,tag))
 
     @livecoding
-    def play_recovery(self):
+    def play_recovery(self,tag):
         """ Play the recovery sound. """
-        rpyc.async(self._stimpresenter.sound)(self.recovery_file,volume=self.recovery_volume,location='array',**self.sound_params)
-        self.marker('Stimulus/Auditory/Recovery, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i' % (self.recovery_file, self.counter_name, self.client_idx))
+        rpyc.async(self._stimpresenter.sound)(self.recovery_file,volume=self.recovery_volume,location='array',tag=tag,**self.sound_params)
+        self.marker('Stimulus/Auditory/Recovery, Stimulus/Auditory/Sound File/"%s", Experiment Control/Task/Scoring/Counter/%s, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (self.recovery_file, self.counter_name, self.client_idx,tag))
 
 
 _question_id_generator = itertools.count(1)   # a generator to assign experiment-wide unique id's to questions asked to the subject
@@ -1102,6 +1112,7 @@ class QueryPresenter(LatentModule):
 
         now = time.time()
         if now > self._locked_until:
+            tag = next(_event_tag_generator)
             # call the presenter to present the query
             if type(lock_duration) == list or type(lock_duration) == tuple:
                 lock_duration = random.uniform(lock_duration[0],lock_duration[1])
@@ -1109,17 +1120,17 @@ class QueryPresenter(LatentModule):
             funcs = self.presenterfuncs[querydomain]
             if query:
                 if type(query) is not str:
-                    # if the query is a function (special case), invoke it directly
-                    query()
+                    # if the query is a function (special case), invoke it directly with the tag as argument
+                    query(tag)
                 else:
                     # otherwise present it through the presenter functions
                     for f in funcs:
                         if query[-4:] == '.wav' or query[-4:] == '.mp3':
                             # if it's a file don't try to prefix with callsign
-                            f(query,lockduration=lock_duration)
+                            f(query,lockduration=lock_duration,tag=tag)
                         else:
-                            f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration)
-            self.marker('Experiment Control/Task/Queries/Issue-%s/{identifier:%i}, Participant/ID/%i' % ('Focused' if focused else 'Nonfocused',query_id,self.client_idx))
+                            f(('' if no_queryprefix else self.default_query_prefix) + query,lockduration=lock_duration,tag=tag)
+            self.marker('Experiment Control/Task/Queries/Issue-%s/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Focused' if focused else 'Nonfocused',query_id,self.client_idx,tag))
             if focused:
                 # watch for a response event
                 watcher = EventWatcher.EventWatcher()
@@ -1135,21 +1146,22 @@ class QueryPresenter(LatentModule):
     @livecoding
     def on_response(self,actual_response,correct_response,wrong_responses,skip_response,loss_incorrect,gain_correct,loss_skipped,query_id,scoredomain,querydomain):
         """ Function that is called when a subject makes a timely response to a query."""
+        tag = next(_event_tag_generator)
         if actual_response == correct_response:
-            self.marker('Experiment Control/Task/Correct Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
-            self.scorecounters[scoredomain].score_event(gain_correct,nosound=False)
+            self.marker('Experiment Control/Task/Correct Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (actual_response,query_id,self.client_idx,tag))
+            self.scorecounters[scoredomain].score_event(gain_correct,nosound=False,tag=tag)
         elif actual_response in wrong_responses:
-            self.marker('Experiment Control/Task/Incorrect Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
+            self.marker('Experiment Control/Task/Incorrect Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (actual_response,query_id,self.client_idx,tag))
             log_experimenter('Subject%i error in %s (%s instead of %s)' % (self.client_idx,scoredomain,actual_response,correct_response))
-            self.scorecounters[scoredomain].score_event(loss_incorrect,nosound=False)
+            self.scorecounters[scoredomain].score_event(loss_incorrect,nosound=False,tag=tag)
         elif actual_response == skip_response:
-            self.marker('Experiment Control/Task/Skipped Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
+            self.marker('Experiment Control/Task/Skipped Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (query_id,self.client_idx,tag))
             log_experimenter('Subject%i skipped in %s' % (self.client_idx,scoredomain))
-            rpyc.async(self.stimpresenter.sound)(self.skip_sound,volume=self.skip_volume,block=False,location='array')
-            self.scorecounters[scoredomain].score_event(loss_skipped)
+            rpyc.async(self.stimpresenter.sound)(self.skip_sound,volume=self.skip_volume,block=False,location='array',tag=tag)
+            self.scorecounters[scoredomain].score_event(loss_skipped,tag=tag)
         else:
-            self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (actual_response,query_id,self.client_idx))
-            self.scorecounters[scoredomain].score_event(loss_incorrect)
+            self.marker('Experiment Control/Task/Inappropriate Action/%s, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (actual_response,query_id,self.client_idx,tag))
+            self.scorecounters[scoredomain].score_event(loss_incorrect,tag=tag)
             # clear the respective presenter
         for f in self.clearfuncs[querydomain]:
             f()
@@ -1157,11 +1169,12 @@ class QueryPresenter(LatentModule):
     @livecoding
     def on_timeout(self,loss_missed,query_id,scoredomain,querydomain):
         """ Function that is called when a subset fails to make a timely response to a query. """
-        self.marker('Experiment Control/Task/Missed Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i' % (query_id,self.client_idx))
-        self.scorecounters[scoredomain].score_event(loss_missed)
+        tag = next(_event_tag_generator)
+        self.marker('Experiment Control/Task/Missed Action, Experiment Control/Task/Queries/Response/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (query_id,self.client_idx,tag))
+        self.scorecounters[scoredomain].score_event(loss_missed,tag=tag)
         if not ispause:
             log_experimenter('Subject%i timeout in %s' % (self.client_idx,scoredomain))
-            rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False,location='array')
+            rpyc.async(self.stimpresenter.sound)(self.miss_sound,volume=self.miss_volume,block=False,location='array',tag=tag)
         # clear the respective presenter
         for f in self.clearfuncs[querydomain]:
             f()
@@ -1228,8 +1241,9 @@ class AttentionSetManager(LatentModule):
                 self.sleep(5)
 
             # randomly draw this many active regions from self.regions
+            tag = next(_event_tag_generator)
             self.active_regions = random.sample(set(self.available_subset).intersection(set(self.regions.keys())),min(num_regions,len(self.available_subset)))
-            self.marker('Experiment Control/Task/Attention/Switch To/%s, Participant/ID/%i' % (str(self.active_regions).replace(',','|'),self.client_idx))
+            self.marker('Experiment Control/Task/Attention/Switch To/%s, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (str(self.active_regions).replace(',','|'),self.client_idx,tag))
 
             # set the focused flag for all focusable objects appropriately
             for regionname in self.region_names:
@@ -1262,7 +1276,7 @@ class AttentionSetManager(LatentModule):
                     instruct_via.remove(potential_duplicate[1])
                 # now output on all that remain
             for regionname in instruct_via:
-                self.instructors[regionname](switch_message)
+                self.instructors[regionname](switch_message,tag=tag)
 
             # update the visibility of the region activity indicators
             try:
@@ -1512,6 +1526,7 @@ class IndicatorLightTask(LatentModule):
         self.pic_tick_off = pic_tick_off
         self.pic_tick_on = pic_tick_on
         self.tick_rate = tick_rate
+        self.remote_sound = rpyc.async(self.stimpresenter.sound)
 
     def run(self):
         # prepare the stimuli, etc.
@@ -1520,6 +1535,7 @@ class IndicatorLightTask(LatentModule):
         try:
             # create the lightbulb picture
             self.pic = rpyc.enable_async_methods(self.stimpresenter.picture(self.pic_off, max_duration, block=False, **self.pic_params))
+            self.remote_marker = rpyc.async(self.stimpresenter.marker)
             while True:
                 # alternate between off and on conditions
                 self.off_condition()
@@ -1572,7 +1588,9 @@ class IndicatorLightTask(LatentModule):
         else:
             # just show the off pick
             self.pic.setTexture(self.pic_off); self.sleep(self.event_interval())
-            self.marker('Stimulus/Visual/Indicator Light, Participant/ID/%i, Experiment Control/Task/Indicators/Off' % self.client_idx)
+            tag = next(_event_tag_generator)
+            self.marker('Stimulus/Visual/Indicator Light, Participant/ID/%i, Experiment Control/Task/Indicators/Off, Experiment Control/Synchronization/Tag/%s' % (self.client_idx,tag))
+            self.remote_marker('Experiment Control/Synchronization/Tag/%s' % tag)
 
     @livecoding
     def on_condition(self):
@@ -1592,41 +1610,46 @@ class IndicatorLightTask(LatentModule):
         else:
             # just show the "on" picture
             self.pic.setTexture(self.pic_on); self.sleep(self.timeout)
-            self.marker('Stimulus/Visual/Indicator Light, Participant/ID/%i, Experiment Control/Task/Indicators/On' % self.client_idx)
+            tag = next(_event_tag_generator)
+            self.marker('Stimulus/Visual/Indicator Light, Participant/ID/%i, Experiment Control/Task/Indicators/On, Experiment Control/Synchronization/Tag/%s' % (self.client_idx,tag))
+            self.remote_marker('Experiment Control/Synchronization/Tag/%s' % tag)
         self.marker('Stimulus/Visual/Indicator Light, Participant/ID/%i, Experiment Control/Task/Indicators/Time Is Up' % self.client_idx)
 
     @livecoding
     def on_missed(self):
         """ Subject misses to respond in time. """
         if self.focused and not ispause:
-            self.marker('Participant/ID/%i, Experiment Control/Task/Missed Action' % self.client_idx)
+            tag = next(_event_tag_generator)
+            self.marker('Participant/ID/%i, Experiment Control/Task/Missed Action, Experiment Control/Synchronization/Tag/%s' % (self.client_idx,tag))
             log_experimenter('Subject%i missed warning light' % self.client_idx)
-            self.scorecounter.score_event(self.miss_penalty,nosound=self.no_score_sounds)
-            rpyc.async(self.stimpresenter.sound)(self.snd_miss,location='array',**self.snd_params)
+            self.scorecounter.score_event(self.miss_penalty,nosound=self.no_score_sounds,tag=tag)
+            self.remote_sound(self.snd_miss,location='array',tag=tag,**self.snd_params)
 
     #noinspection PyUnusedLocal
     @livecoding
     def on_false_detection(self,evtype,t):
         """ Subject spuriously presses the response button. """
-        self.marker('Participant/ID/%i, Experiment Control/Task/Incorrect Action' % self.client_idx)
+        tag = next(_event_tag_generator)
+        self.marker('Participant/ID/%i, Experiment Control/Task/Incorrect Action, Experiment Control/Synchronization/Tag/%s' % (self.client_idx,tag))
         log_experimenter('Subject%i false positive in warning light' % self.client_idx)
-        self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds)
-        rpyc.async(self.stimpresenter.sound)(self.snd_false,location='array',**self.snd_params)
+        self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds,tag=tag)
+        self.remote_sound(self.snd_false,location='array',tag=tag,**self.snd_params)
 
     #noinspection PyUnusedLocal
     @livecoding
     def on_correct(self,evtype,t):
         """ Subject presses the correct response button in time. """
+        tag = next(_event_tag_generator)
         if self.focused and not ispause:
             # the user correctly spots the warning event
-            self.marker('Participant/ID/%i, Experiment Control/Task/Correct Action' % self.client_idx)
-            self.scorecounter.score_event(self.hit_reward,nosound=self.no_score_sounds)
-            rpyc.async(self.stimpresenter.sound)(self.snd_hit,location='array',**self.snd_params)
+            self.marker('Participant/ID/%i, Experiment Control/Task/Correct Action, Experiment Control/Synchronization/Tag/%s' % (self.client_idx,tag))
+            self.scorecounter.score_event(self.hit_reward,nosound=self.no_score_sounds,tag=tag)
+            self.remote_sound(self.snd_hit,location='array',tag=tag,**self.snd_params)
         else:
             # the user spotted it, but was not tasked to do so...
-            self.marker('Participant/ID/%i, Experiment Control/Task/Incorrect Action' % self.client_idx)
-            self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds)
-            rpyc.async(self.stimpresenter.sound)(self.snd_false,location='array',**self.snd_params)
+            self.marker('Participant/ID/%i, Experiment Control/Task/Incorrect Action, Experiment Control/Synchronization/Tag/%s' % (self.client_idx,tag))
+            self.scorecounter.score_event(self.false_penalty,nosound=self.no_score_sounds,tag=tag)
+            self.remote_sound(self.snd_false,location='array',tag=tag,**self.snd_params)
 
 
 class TextCommTask(LatentModule):
@@ -1807,16 +1830,17 @@ class TextCommTask(LatentModule):
         t_end = time.time() + lull_duration
         while time.time() < t_end:
             # message for another callsign
+            tag = next(_event_tag_generator)
             if random.random() < no_callsign_fraction:
                 # has no callsign
                 sentence = random.choice(self.distractors)
-                self.presenterfunc(sentence)
-                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
+                self.presenterfunc(sentence,tag=tag)
+                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,self.client_idx,tag))
             else:
                 # for another callsign
                 sentence = self.substitute(random.choice(self.distractors),random.choice(self.callsigns))
-                self.presenterfunc(sentence)
-                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
+                self.presenterfunc(sentence,tag=tag)
+                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,self.client_idx,tag))
                 # wait for the message interval
             self.sleep(self.message_interval())
         self.marker('Experiment Control/Task/Comms/Lull Ends, Participant/ID/%i' % self.client_idx)
@@ -1836,38 +1860,42 @@ class TextCommTask(LatentModule):
         while time.time() < t_end:
             if random.random() < other_callsign_fraction:
                 # message for another callsign
+                tag = next(_event_tag_generator)
                 if random.random() < no_callsign_fraction:
                     # has no callsign
                     sentence = random.choice(self.distractors)
-                    self.presenterfunc(sentence)
-                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
+                    self.presenterfunc(sentence,tag=tag)
+                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,self.client_idx,tag))
                 else:
                     # for another callsign
                     sentence = self.substitute(random.choice(self.distractors),random.choice(self.callsigns))
-                    self.presenterfunc(sentence)
-                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
+                    self.presenterfunc(sentence,tag=tag)
+                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,self.client_idx,tag))
                 self.sleep(self.message_interval())
             else:
                 # message for the current callsign
                 if time.time() < t_beginquestions:
                     # no question asked
                     sentence = self.substitute(random.choice(self.distractors),self.targetsign)
-                    self.presenterfunc(sentence)
-                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
+                    tag = next(_event_tag_generator)
+                    self.presenterfunc(sentence,tag=tag)
+                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,self.client_idx,tag))
                     self.pause_after_message()
                 else:
                     if not self.focused or random.random() >= questioned_fraction:
                         # no question asked
                         sentence = self.substitute(random.choice(self.distractors),self.targetsign)
-                        self.presenterfunc(sentence)
-                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
+                        tag = next(_event_tag_generator)
+                        self.presenterfunc(sentence,tag=tag)
+                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,self.client_idx,tag))
                         self.pause_after_message()
                     else:
                         # first present the sentence; the marker is tagged with the query ID
                         sentence = self.substitute(self.sentences[self.num_question],self.targetsign)
-                        self.presenterfunc(sentence)
+                        tag = next(_event_tag_generator)
                         query_id = next(_question_id_generator)
-                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i' % ('Visual',sentence,query_id,self.client_idx))
+                        self.presenterfunc(sentence,tag=tag)
+                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % ('Visual',sentence,query_id,self.client_idx,tag))
                         self.pause_after_message()
                         # generate the query
                         question = StimulusQuestion(
@@ -2017,6 +2045,7 @@ class SpeechCommTask(LatentModule):
         self.sound_volume = sound_volume
         self.voice_angles = voice_angles
         random.shuffle(voice_angles)
+        self.play_sound = rpyc.async(self.stimpresenter.sound)
 
     def run(self):
         # some parameter post-processing
@@ -2107,7 +2136,7 @@ class SpeechCommTask(LatentModule):
                         question = StimulusQuestion(
                             client_idx=self.client_idx,
                             category='audiocomm',
-                            phrase=lambda:self.play_utterance(speaker=other_speaker,index=index,type='query',callsign=self.targetsign,query_id=query_id),
+                            phrase=lambda tag:self.play_utterance(speaker=other_speaker,index=index,type='query',callsign=self.targetsign,query_id=query_id,tag=tag),
                             correct_answer = 'yes' if istrue else 'no',
                             all_answers = ['yes','no'],
                             label = 'question #'+str(index),
@@ -2150,31 +2179,35 @@ class SpeechCommTask(LatentModule):
                        index,       # utterance index
                        type,        # can either be 'statement', 'query', or 'distractor'
                        callsign,    # callsign prefix, if any ('' for no callsign)
-                       query_id     # id of the question, if any
+                       query_id,     # id of the question, if any
+                       tag=0
     ):
         """ Play an utterance over the speaker array. Also emit a marker. """
         angle = self.voice_angles[speaker-1]
         if callsign:
-            rpyc.async(self.stimpresenter.sound)("callsigns/s%i/%s.wav" % (speaker,callsign.lower()),direction=angle,volume=self.sound_volume,block=False,location='array')
+            self.play_sound("callsigns/s%i/%s.wav" % (speaker,callsign.lower()),direction=angle,volume=self.sound_volume,block=False,location='array')
             # make sure that we block for the exact right duration here... (playing locally at volume 0)
             self.sound("callsigns/s%i/%s.wav" % (speaker,callsign),direction=angle,volume=0,block=True,location='headset')
+        if not tag:
+            tag = next(_event_tag_generator)
         if type == 'distractor':
-            rpyc.async(self.stimpresenter.sound)("distractors/s%i/D%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array')
-            self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Distractor/%s, Participant/ID/%i' % (index,'No Callsign' if not callsign else 'Other Callsign',self.client_idx))
+            self.play_sound("distractors/s%i/D%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array',tag=tag)
+            self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Distractor/%s, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (index,'No Callsign' if not callsign else 'Other Callsign',self.client_idx,tag))
         elif type == 'statement':
-            rpyc.async(self.stimpresenter.sound)("sentences/s%i/S%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array')
+            self.play_sound("sentences/s%i/S%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array',tag=tag)
             if query_id:
-                self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i' % (index,query_id,self.client_idx))
+                self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (index,query_id,self.client_idx,tag))
             else:
-                self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % (index,self.client_idx))
+                self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (index,self.client_idx,tag))
         elif type == 'query':
-            rpyc.async(self.stimpresenter.sound)("sentences/s%i/Q%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array')
-            self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Probe/%i, Participant/ID/%i' % (index,query_id,self.client_idx))
+            self.play_sound("sentences/s%i/Q%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array',tag=tag)
+            self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Probe/%i, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (index,query_id,self.client_idx,tag))
 
     @livecoding
     def play_random_distractor(self,callsign):
         speaker=random.choice(self.speakers)
         self.play_utterance(speaker=speaker,index=random.choice(self.distractors[speaker]),type='distractor',callsign=callsign,query_id=None)
+
 
 class SatmapTask(BasicStimuli):
     """ 
@@ -2292,6 +2325,7 @@ class SatmapTask(BasicStimuli):
 
         # cache a few remote procedure calls
         self.satmap_icon_remover_func = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo)
+        self.gizmo_create_func = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo)
         self.button_flasher = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.flash_objects)
 
     @livecoding
@@ -2319,20 +2353,20 @@ class SatmapTask(BasicStimuli):
                     removed_labels.append(self.current_labels[idx])
 
                     # remove it from screen
+                    tag = next(_event_tag_generator)
                     try:
-                        self.satmap_icon_remover_func(self.current_icons[idx])
+                        self.satmap_icon_remover_func(self.current_icons[idx],tag=tag)
                     except Exception, e:
                         print time.time(), ": Got an async timeout result while trying to delete a satmap item:", e
 
                     # stimulus offset marker
-                    self.marker('Experiment Control/Task/Satellite Map/Remove Icon/{identifier:%i|label:%s}, Participant/ID/%i'% (self.current_questions[idx].identifier, self.current_questions[idx].label, self.client_idx))
+                    self.marker('Experiment Control/Task/Satellite Map/Remove Icon/{identifier:%i|label:%s}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s'% (self.current_questions[idx].identifier, self.current_questions[idx].label, self.client_idx,tag))
 
                     if self.focused and (random.random() > self.distractor_fraction):
                         delay = self.onset_delay()
                         question = self.current_questions[idx]
                         if self.use_buttonflash:
                             question.phrase = lambda:self.flash_button_bar(question.category,None)
-                            #taskMgr.doMethodLater(delay,self.flash_button_bar,'FlashButtonBar',extraArgs=[question.category], appendTask=True)
 
                         # present the associated query
                         self.querypresenter.submit_question(
@@ -2429,12 +2463,12 @@ class SatmapTask(BasicStimuli):
                 question = StimulusQuestion(category="direction",phrase="" if self.use_buttonflash else ("What was the direction of the last " + label + '?'),
                     correct_answer=direction,all_answers=['north','south','east','west'],label=label,client_idx=self.client_idx)
 
+            tag = next(_event_tag_generator)
             # generate the picture instance
             #noinspection PyUnboundLocalVariable
-            icon = rpyc.async(self.util.conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo)(
-                image=filename, scale=self.item_scale, position=pos,color=self.item_colors[color], parent=self.scenegraph, camera_mask=(3,4))
+            icon = self.gizmo_create_func(image=filename, scale=self.item_scale, position=pos,color=self.item_colors[color], parent=self.scenegraph, camera_mask=(3,4),tag=tag)
             # issue stimulus presentation marker
-            self.marker('Stimulus/Visual/Shape, Experiment Control/Task/Satellite Map/Add Icon/{identifier:%i|label:%s|color:%s|direction:%s|x:%f|y:%f|phi:%f|r:%f}, Participant/ID/%i'% (question.identifier, question.label, color, direction, pos[0], pos[1], angle, radius, self.client_idx))
+            self.marker('Stimulus/Visual/Shape, Experiment Control/Task/Satellite Map/Add Icon/{identifier:%i|label:%s|color:%s|direction:%s|x:%f|y:%f|phi:%f|r:%f}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s'% (question.identifier, question.label, color, direction, pos[0], pos[1], angle, radius, self.client_idx,tag))
 
             # append to the list
             self.current_icons.append(icon)
@@ -2511,6 +2545,7 @@ class SoundTask(LatentModule):
         self.querydomain = querydomain
         self.scoredomain = scoredomain
         self.probe_sound = probe_sound
+        self.play_sound = rpyc.async(self.stimpresenter.sound)
 
         self.filenames = []     # icons with associated label
         self.labels = []        # labels about those icons
@@ -2554,14 +2589,15 @@ class SoundTask(LatentModule):
             label = self.labels[soundidx]
 
             # pre-compute the associated question
-            question = StimulusQuestion(category="sound_direction", phrase=lambda: rpyc.async(self.stimpresenter.sound)(self.probe_sound,volume=self.sound_volume,block=False,location='array'),
+            question = StimulusQuestion(category="sound_direction", phrase=lambda tag: self.play_sound(self.probe_sound,volume=self.sound_volume,block=False,location='array',tag=tag),
                 correct_answer=direction, all_answers=self.sound_directions.keys(),label=label, client_idx = self.client_idx)
 
             # emit the sound and onset marker
-            rpyc.async(self.stimpresenter.sound)(filename,direction=angle,volume=self.sound_volume,block=False,location='array')
+            tag = next(_event_tag_generator)
+            self.play_sound(filename,direction=angle,volume=self.sound_volume,block=False,location='array',tag=tag)
             if self.client_idx==0:
                 print "Now playing " + label + " on " + direction + "..."
-            self.marker('Stimulus/Auditory/File/"%s", Stimulus/Auditory/Direction/%s, Experiment Control/Task/Sound Events/{identifier:%i|label:%s}, Participant/ID/%i' % (filename, direction.capitalize(), question.identifier, question.label, self.client_idx))
+            self.marker('Stimulus/Auditory/File/"%s", Stimulus/Auditory/Direction/%s, Experiment Control/Task/Sound Events/{identifier:%i|label:%s}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (filename, direction.capitalize(), question.identifier, question.label, self.client_idx,tag))
 
             if self.focused and (random.random() > self.distractor_fraction):
                 # schedule the query
@@ -2930,16 +2966,17 @@ class ProbedObjectsTask(LatentModule):
                         self.marker('Experiment Control/Task/Sidewalk Items/Expecting Subject Report/{identifier:%i|label:%s}, Participant/ID/%i' % (ent.identifier,label,a))
 
                         # this is a special reportable object: we expect a response from the subject
+                        tag = next(_event_tag_generator)
                         if self.waitfor('cl' + str(a) + '-report',duration=self.reportable_timeout):
                             # subject reponded in time
                             print str(time.time()) + ": subject responded in time to suspicious object"
-                            self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/Sidewalk Items/Reported Object/{identifier:%i}, Participant/ID/%i' % (ent.identifier,a))
-                            self.report_scorecounters[a].score_event(self.gain_correct*self.reportable_score_multiplier,nosound=False)
+                            self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/Sidewalk Items/Reported Object/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (ent.identifier,a,tag))
+                            self.report_scorecounters[a].score_event(self.gain_correct*self.reportable_score_multiplier,nosound=False,tag=tag)
                         else:
                             # failed to respond
                             print str(time.time()) + ": subject failed to respond to suspicious object"
-                            self.marker('Experiment Control/Task/Action/Missed, Experiment Control/Task/Sidewalk Items/Failed To Report Object/{identifier:%i}, Participant/ID/%i' % (ent.identifier,a))
-                            self.report_scorecounters[a].score_event(self.loss_missed*self.reportable_score_multiplier)
+                            self.marker('Experiment Control/Task/Action/Missed, Experiment Control/Task/Sidewalk Items/Failed To Report Object/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (ent.identifier,a,tag))
+                            self.report_scorecounters[a].score_event(self.loss_missed*self.reportable_score_multiplier,tag=tag)
                         ent.has_generated_question[a] = True
 
                     elif sufficiently_invisible:
@@ -3429,6 +3466,7 @@ class SmartGizmo(BasicStimuli):
                  display_scenegraphs,    # the scene graphs to which the objects should be added
                  display_funcs,          # the functions to display/delete the instances as list of pairs (first one is the constructor, second one the destructor), signature-compatible with (create_worldspace_gizmo,destroy_worldspace_gizmo)
                  display_engines,        # engine instances to load the models...
+                 display_stimpresenters, # remote stimulus presenters
                  client_indices,         # the client indices corresponding to the respective list entries in display_*** (referred to in the clip-box / clamp-box updates)
                  # display properties
                  pos=(0,0,0),            # initial position of the gizmo
@@ -3450,6 +3488,7 @@ class SmartGizmo(BasicStimuli):
         self.display_scenegraphs = display_scenegraphs
         self.display_funcs = display_funcs
         self.display_engines = display_engines
+        self.display_stimpresenters = display_stimpresenters
         self.client_indices = client_indices
 
         if type(image) is not list:
@@ -3529,13 +3568,16 @@ class SmartGizmo(BasicStimuli):
         self.pos = pos
         if hpr:
             self.hpr = hpr
-        self.update()
+        tag = next(_event_tag_generator)
+        self.update(tag)
         if self.gizmo_name:
-            self.marker('Experiment Control/Task/%s/Move/{identifier:%i|x:%f|y:%f|z:%f}' % (self.gizmo_name,self.identifier,self.pos[0],self.pos[1],self.pos[2]))
+            self.marker('Experiment Control/Task/%s/Move/{identifier:%i|x:%f|y:%f|z:%f}, Experiment Control/Synchronization/Tag/%s' % (self.gizmo_name,self.identifier,self.pos[0],self.pos[1],self.pos[2],tag))
 
     @livecoding
-    def update(self):
+    def update(self,tag=0):
         """ Update the location of the checkpoint. """
+        if not tag:
+            tag = next(_event_tag_generator)
         for g in self.cam_gizmos:
             rpyc.async(g.setPos)(self.pos[0],self.pos[1],self.pos[2])
         for k in range(len(self.sat_gizmos)):
@@ -3553,6 +3595,8 @@ class SmartGizmo(BasicStimuli):
             else:
                 clamppos = self.pos
             rpyc.async(self.sat_gizmos[k].setPosHpr)(clamppos[0],clamppos[1],clamppos[2],self.hpr[0],self.hpr[1],self.hpr[2])
+        for k in range(len(self.display_stimpresenters)):
+            rpyc.async(self.display_stimpresenters[k].marker)('Experiment Control/SmartGizmo/Update, Experiment Control/Synchronization/Tag/%s' % (tag))
 
     @livecoding
     def destroy(self):
@@ -4946,12 +4990,13 @@ class Main(SceneBase):
                 cl.agents.append(rpyc.enable_async_methods(cl.find_agent(self.agent_names[k])))
                 cl.update_agents_poshpr.append(cl.agents[k].setPosHpr)
 
-                # also create the (satmap) gizmo objects for the agents
+            # also create the (satmap) gizmo objects for the agents
             visible_to = [0,1]
             self.agent_gizmos.append(SmartGizmo(
                 display_scenegraphs=[self.clients[j].city for j in visible_to] + [self.city],
                 display_funcs=[(self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for j in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
                 display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
+                display_stimpresenters=[self.clients[j].remote_stimpresenter for j in visible_to] + [self],
                 client_indices = visible_to + [2],
                 image=[(self.own_agent_icon if j==k else self.friendly_agent_icon) for j in visible_to] + [self.friendly_agent_icon],
                 scale=self.agent_icon_scale,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=False,billboard=False,throughwalls=True))
@@ -5200,14 +5245,15 @@ class Main(SceneBase):
                                         # and it is not just a reappearance after a short hide
                                         if a.potentially_invisible_since[c] > self.short_hide_cutoff:
                                             # then it's a genuine miss!
+                                            tag = next(_event_tag_generator)
                                             if a.directly_visible_since[c] <= a.potentially_visible_since[c] and a.was_directly_visible_for[c] > self.short_spotting_cutoff:
                                                 # and it was directly visible for long enough during this encounter to be counted as a full-visible miss
-                                                self.marker('Experiment Control/Task/PanTheCam/Visible Agent Report Missed/{identifier:%i}, Participant/ID/%i' % (a.identifier,self.panning_idx))
-                                                self.clients[c].overall_score.score_event(self.pancam_missed_loss)
+                                                self.marker('Experiment Control/Task/PanTheCam/Visible Agent Report Missed/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (a.identifier,self.panning_idx,tag))
+                                                self.clients[c].overall_score.score_event(self.pancam_missed_loss,tag=tag)
                                             else:
                                                 # it was never really in view so we don't penalize quite as badly
-                                                self.marker('Experiment Control/Task/PanTheCam/Invisible Agent Report Missed/{identifier:%i}, Participant/ID/%i' % (a.identifier,self.panning_idx))
-                                                self.clients[c].overall_score.score_event(self.pancam_unseen_loss)
+                                                self.marker('Experiment Control/Task/PanTheCam/Invisible Agent Report Missed/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (a.identifier,self.panning_idx,tag))
+                                                self.clients[c].overall_score.score_event(self.pancam_unseen_loss,tag=tag)
                             a.potentially_invisible_since[c] = now
                         a.is_potentially_visible[c] = potentially_visible
                     # time between updates
@@ -5402,6 +5448,7 @@ class Main(SceneBase):
                 display_scenegraphs=[self.clients[j].city for j in visible_to] + [self.city],
                 display_funcs=[(self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[j].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for j in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
                 display_engines=[self.clients[j]._engine for j in visible_to] + [self._engine],
+                display_stimpresenters=[self.clients[j].remote_stimpresenter for j in visible_to] + [self],
                 client_indices = visible_to + [2],
                 pos=self.truck_pos,image=self.truck_icon,scale=self.truck_icon_size,opacity=0.95,oncamera=False,onsatmap=True,onexperimenter=True,billboard=True,throughwalls=True)
 
@@ -5843,17 +5890,18 @@ class Main(SceneBase):
     def broadcast_message(self,msg,no_callsign=False,mission=False,client=None):
         """ Send a text message to one or both clients. Optionally also present on the mission text screen."""
         log_experimenter(msg)
+        tag = next(_event_tag_generator)
         if client is None:
             for cl in self.clients:
-                cl.viewport_instructions.submit(('' if no_callsign else cl.id + ', ') + msg)
+                cl.viewport_instructions.submit(('' if no_callsign else cl.id + ', ') + msg,tag=tag)
                 if mission:
-                    cl.mission_text.submit(('' if no_callsign else cl.id + ', ') + msg)
+                    cl.mission_text.submit(('' if no_callsign else cl.id + ', ') + msg,tag=tag)
         else:
-            self.clients[client].viewport_instructions.submit(('' if no_callsign else self.clients[client].id + ', ') + msg)
+            self.clients[client].viewport_instructions.submit(('' if no_callsign else self.clients[client].id + ', ') + msg,tag=tag)
             if mission:
-                self.clients[client].mission_text.submit(('' if no_callsign else self.clients[client].id + ', ') + msg)
+                self.clients[client].mission_text.submit(('' if no_callsign else self.clients[client].id + ', ') + msg,tag=tag)
 
-        self.marker('Stimulus/Visual/Language/Sentence/%s, Participant/ID/both' % msg)
+        self.marker('Stimulus/Visual/Language/Sentence/%s, Participant/ID/both, Experiment Control/Synchronization/Tag/%s' % (msg,tag))
 
     @livecoding
     def broadcast_agentstate(self):
@@ -6011,8 +6059,9 @@ class Main(SceneBase):
 
     @livecoding
     def on_pushtotalk(self,client):
-        self.marker('Response/Button Press/Push To Talk')
-        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,location='array',block=False)
+        tag = next(_event_tag_generator)
+        self.marker('Response/Button Press/Push To Talk, Experiment Control/Synchronization/Tag/%s' % tag)
+        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,location='array',block=False,tag=tag)
         # rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,location='array',block=False)
 
     @livecoding
@@ -6028,6 +6077,7 @@ class Main(SceneBase):
             v_vec = Vec3(v_vec.getX(),v_vec.getY(),v_vec.getZ())
             # for each agent...
             score_delta = 0
+            tag = next(_event_tag_generator)
             for a in self.wanderers:
                 a_pos = Point3(a.pos.getX(),a.pos.getY(),a.pos.getZ()+self.hostile_agent_head_height)
                 counts_as_report = line_of_sight(self.physics, v_pos, a_pos, v_vec, a.vel, src_fov=self.report_field_of_view,src_maxsight=self.pancam_max_report_distance) is not None
@@ -6037,20 +6087,20 @@ class Main(SceneBase):
                     # last report was long enough ago or the object had not been potentially visible since some time after the last report
                     if now - a.last_report_time[c] > self.double_report_cutoff or a.last_report_time[c] < a.potentially_invisible_since[c]:
                         # valid report
-                        self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participant/ID/%i' % (a.identifier,c))
+                        self.marker('Experiment Control/Task/Action/Correct, Experiment Control/Task/PanTheCam/Reported Object/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (a.identifier,c,tag))
                         score_delta += self.pancam_spotted_gain
                     else:
                         # reporting the same object in too short succession
-                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participant/ID/%i' % (a.identifier,c))
+                        self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/Doubly Reported Object/{identifier:%i}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (a.identifier,c,tag))
                         log_experimenter('Subject%i double-reported drone' % c)
                         score_delta += self.pancam_double_loss
                     a.last_report_time[c] = now
             if report_valid:
-                self.clients[c].overall_score.score_event(score_delta,nosound=False)
+                self.clients[c].overall_score.score_event(score_delta,nosound=False,tag=tag)
             else:
-                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participant/ID/%i' % c)
+                self.marker('Experiment Control/Task/Action/Incorrect, Experiment Control/Task/PanTheCam/False Report, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (c,tag))
                 log_experimenter('Subject%i falsely reported drone' % c)
-                self.clients[c].overall_score.score_event(self.pancam_false_loss,nosound=False)
+                self.clients[c].overall_score.score_event(self.pancam_false_loss,nosound=False,tag=tag)
             self.last_report_press_time[c] = now
 
     def client_ack(self):
@@ -6060,9 +6110,10 @@ class Main(SceneBase):
     @livecoding
     def on_client_warn(self,idx):
         """ Callback when a client has pressed the "warn off" button. """
-        self.marker('Response/Button Press/Warn Agents')
+        tag = next(_event_tag_generator)
+        self.marker('Response/Button Press/Warn Agents, Experiment Control/Synchronization/Tag/%s' % tag)
         v = self.agents[idx]
-        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,location='surround',sourcetype='point',volume=self.alert_volume)
+        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,location='surround',sourcetype='point',volume=self.alert_volume,tag=tag)
         viewdir = v.getParent().getMat(self.city).getRow(1)
         num_warnedoff = 0
         num_alreadyretreating = 0
@@ -6081,12 +6132,12 @@ class Main(SceneBase):
                     a.enter_retreat(v.getPos(self.city))
                     self.update_score_both(self.threatenaway_bonus)
         if num_warnedoff > 0:
-            self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!')
+            self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!',tag=tag)
         elif num_alreadyretreating > 0:
             # note: this message is only issued when there's not already at least one agent who was successfully warned off
-            self.clients[idx].viewport_instructions.submit('This agent is already retreating.')
+            self.clients[idx].viewport_instructions.submit('This agent is already retreating.',tag=tag)
         else:
-            self.clients[idx].viewport_instructions.submit('There is no agent.')
+            self.clients[idx].viewport_instructions.submit('There is no agent.',tag=tag)
 
     @livecoding
     def on_client_speech(self,
@@ -6248,6 +6299,7 @@ class Main(SceneBase):
             display_scenegraphs=[self.clients[k].city for k in visible_to] + [self.city],
             display_funcs=[(self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.create_worldspace_gizmo,self.clients[k].conn.modules.framework.ui_elements.WorldspaceGizmos.destroy_worldspace_gizmo) for k in visible_to] + [(create_worldspace_gizmo,destroy_worldspace_gizmo)],
             display_engines=[self.clients[k]._engine for k in visible_to] + [self._engine],
+            display_stimpresenters=[self.clients[k].remote_stimpresenter for k in visible_to] + [self],
             client_indices = visible_to + [2],
             gizmo_name='Checkpoint',
             cam_scale=self.checkpoint_scale_cam,

@@ -25,7 +25,7 @@ class ScrollPresenter(TextPresenter):
         self.prompt = prompt
         self.autoclear = autoclear
 
-    def _present(self,message):
+    def _present(self,message,tag=0):
         self.marker("ScrollPresenter::_present(%s)" % message)
         if len(self.lines)>0 and (self.numlines - len(self.lines) < self.padding):
             # scroll up by one
@@ -34,7 +34,7 @@ class ScrollPresenter(TextPresenter):
         self.lines.append(self.prompt + message.strip())
         self.marker(224)
         # draw padded with blank lines
-        TextPresenter._present(self,"\n".join(self.lines + ['']*(self.numlines - len(self.lines))))
+        TextPresenter._present(self,"\n".join(self.lines + ['']*(self.numlines - len(self.lines))),tag=tag)
         if self.autoclear is not None:
             taskMgr.doMethodLater(self.autoclear,self._doautoclear,'Scroll.autoclear')
 

@@ -46,7 +46,7 @@ class AudioPresenter(MessagePresenter):
         self.speak = None
         self.audio3d = None      
 
-    def _present(self,message):
+    def _present(self,message,tag=0):
         self.marker("AudioPresenter::_present(%s)" % message)
         if message[-4] == '.':
             # sound file name 
@@ -68,6 +68,7 @@ class AudioPresenter(MessagePresenter):
                 mysound.setTime(self.timeoffset)
             mysound.setPlayRate(self.playrate)
             mysound.play()
+            self.marker('Stimulus/Auditory, Experiment Control/Synchronization/Tag/%s' % tag)
             self.marker(221)
         else:
             # actual text (note: no directionality supported yet)
@@ -76,12 +77,13 @@ class AudioPresenter(MessagePresenter):
                     self.speak = win32com.client.Dispatch('Sapi.SpVoice')
                     self.speak.Volume = self.volume*100.0
                     self.speak.Rate = -1
-                threading.Thread(target=self.do_speak,args=[message]).start()
+                threading.Thread(target=self.do_speak,args=[message,tag]).start()
                 self.marker(221)
             except:
                 print "Error initializing speech output."
 
-    def do_speak(self,message):
+    def do_speak(self,message,tag):
+        self.marker('Stimulus/Auditory/Language, Experiment Control/Synchronization/Tag/%s' % tag)
         self.marker("AudioPresenter::do_speak(%s)" % message)
         try:
             self.speak.Speak(message)

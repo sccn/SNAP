@@ -53,13 +53,14 @@ class TextPresenter(MessagePresenter):
         pos = self.pos
         self.text_nodepath.setPos(pos[0],0,pos[1])
 
-    def _present(self,message):
+    def _present(self,message,tag=0):
         self.marker("TextPresenter::_present(%s)" % message)
         try:
             pos = self.pos
             self.text_nodepath.setPos(pos[0],0,pos[1])
             self.text.setText(message)
             self.text.setTextColor(self.textcolor[0],self.textcolor[1],self.textcolor[2],self.textcolor[3])
+            self.marker('Stimulus/Visual/Language, Experiment Control/Synchronization/Tag/%s' % tag)
             self.marker(226)
         except:
             print "Issue displaying text"

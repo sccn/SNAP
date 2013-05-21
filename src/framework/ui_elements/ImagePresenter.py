@@ -43,7 +43,7 @@ class ImagePresenter(MessagePresenter):
         self.icon = OnscreenImage(image=image,pos=(pos[0],0,pos[1]),scale=scale,hpr=rotation,color= ((0,0,0,0) if image=="blank.tga" else self.color),parent=self.renderviewport)
         self.icon.setTransparency(TransparencyAttrib.MAlpha)
 
-    def _present(self,message):
+    def _present(self,message,tag=0):
         self.marker("ImagePresenter::_present(%s)" % message)
         self.icon.setImage(message.strip())
         self.icon.setTransparency(TransparencyAttrib.MAlpha)
@@ -59,6 +59,7 @@ class ImagePresenter(MessagePresenter):
         col = self.color #() if callable(self.color) else self.color 
         self.icon.setColor(col[0],col[1],col[2],col[3])
         self.marker(222)
+        self.marker('Stimulus/Visual/Picture, Experiment Control/Synchronization/Tag/%s' % tag)
 
     def _unpresent(self):
         try:

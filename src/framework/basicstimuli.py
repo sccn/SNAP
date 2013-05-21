@@ -66,11 +66,12 @@ class BasicStimuli:
               drawOrder=None,           # optional drawing order
               font='arial.ttf',         # optionally the font of the text (see loader.loadFont)
               parent=None,              # parent rendering context or Panda3d NodePath
-              sort=0                    # sorting order of the text
+              sort=0,                   # sorting order of the text
+              tag=-1                    # stimulus tag, if any
               ):
         """Write a piece of text on the screen and keep it there for a particular duration."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::write(text=%s)" % text)
+            self.marker('Stimulus/Visual/Language, Experiment Control/Synchronization/Tag/%s' % tag)
         if align == 'left':
             align = self._engine.pandac.TextNode.ALeft
         elif align == 'right':
@@ -113,11 +114,12 @@ class BasicStimuli:
                   size=0.25,        # size of the crosshair
                   width=0.01,       # thickness of the rectangles
                   color=(0,0,0,1),  # color of the crosshair
-                  parent=None       # the renderer to use for displaying the object
-                  ):        
+                  parent=None,      # the renderer to use for displaying the object
+                  tag=-1            # stimulus tag, if any
+                  ):
         """Draw a crosshair."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::crosshair()")
+            self.marker('Stimulus/Visual/Shape/Cross, Experiment Control/Synchronization/Tag/%s' % tag)
         obj1 = self._engine.direct.gui.OnscreenImage.OnscreenImage(image='blank.tga',pos=(pos[0],0,pos[1]),scale=(size,1,width),color=color,parent=parent)
         self._to_destroy.append(obj1)
         obj1.setTransparency(self._engine.pandac.TransparencyAttrib.MAlpha)
@@ -152,10 +154,11 @@ class BasicStimuli:
                   color=(1,1,1,1),  # the (r,g,b,a) color of the rectangle
                   parent=None,      # the renderer to use for displaying the object
                   depth=0,          # screen depth of the rectangle
+                  tag=-1            # stimulus tag, if any
                   ):
         """Draw a single-colored rectangle."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::rectangle()")
+            self.marker('Stimulus/Visual/Shape/Rectangle, Experiment Control/Synchronization/Tag/%s' % tag)
 
         if duration == 0:
             block = False
@@ -192,10 +195,11 @@ class BasicStimuli:
               # additional parameters
               color=(1,1,1,1),      # the (r,g,b,a) color of the rectangle
               parent=None,          # the renderer to use for displaying the object
+              tag=-1            # stimulus tag, if any
               ):
         """Display a frame on the screen and keep it there for a particular duration."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::frame()")
+            self.marker('Stimulus/Visual/Shape/Frame, Experiment Control/Synchronization/Tag/%s' % tag)
 
         l=rect[0];r=rect[1];t=rect[2];b=rect[3]
         w=thickness[0];h=thickness[1]
@@ -240,10 +244,11 @@ class BasicStimuli:
               scale=None,               # the size of the image; this may be a single flot, a 3-tuple of floats, or a vector; y should be 1, if a 3-tuple is given
               color=None,               # the (r,g,b,a) coloring of the image
               parent=None,              # parent rendering context or Panda3d NodePath
+              tag=-1                    # stimulus tag, if any
               ):
         """Display a picture on the screen and keep it there for a particular duration."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::picture(image=%s)" % image)
+            self.marker('Stimulus/Visual/Picture, Experiment Control/Synchronization/Tag/%s' % tag)
 
         if pos is not None and type(pos) not in (int,float) and len(pos) == 2:
             pos = (pos[0],0,pos[1])
@@ -291,11 +296,12 @@ class BasicStimuli:
               playerindex=None,     # player seat: can be 1, or 2, or None (in that case using default setting)
               sourcetype='point',   # source type: can be 'point' (steerable mono sourece) or 'ambient' (pre-mixed)
               autostop=False,       # whether to issue an OSC stop command at end of track (not necessary)
-              override_id=None      # if this is not None, override the source id in the asset manager (e.g., reserved slots for long-running sounds)
+              override_id=None,     # if this is not None, override the source id in the asset manager (e.g., reserved slots for long-running sounds)
+              tag=-1                # stimulus tag, if any
               ):
         """Play a sound in a particular location."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::sound(filename=%s)" % filename)
+            self.marker('Stimulus/Auditory, Experiment Control/Synchronization/Tag/%s' % tag)
         if not filename:
             return
         if playerindex is None:
@@ -435,10 +441,11 @@ class BasicStimuli:
                                         # texture size and the size of the video content within the texture (note that it can be tricky to get this right due  
                                         # to possible padding introduced when the movie is loaded)
               bordercolor=(0,0,0,0),    # the border color of the movie texture (only visible when the contentoffset and contentscale are used
+              tag=-1                    # stimulus tag, if any
               ):
         """Play a movie. Note: Sound for movies only works with OpenAL (rather than FMOD) -- see documentation at http://www.panda3d.org/manual/index.php/Sound on how to select it."""
         if self.extensive_markers:
-            self.marker("BasicStimuli::movie(filename=%s)" % filename)
+            self.marker('Stimulus/Visual/Movie, Experiment Control/Synchronization/Tag/%s' % tag)
 
         # load the sound track if there is one
         try:

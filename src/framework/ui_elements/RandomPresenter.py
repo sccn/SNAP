@@ -20,7 +20,7 @@ class RandomPresenter(MessagePresenter):
         self.wrappresenter = wrappresenter
         self.messages = messages
 
-    def submit(self,message,lockduration=None,clearafter=None):
+    def submit(self,message,lockduration=None,clearafter=None,tag=0):
         """Submit a new message."""
         self.marker(220)
         if self.messages.has_key(message):
@@ -30,7 +30,7 @@ class RandomPresenter(MessagePresenter):
             self.marker(20000+item_idx)
             message = self.messages[message][item_idx]
         print "chosen message: ",message,"(set size: ",len(self.messages),")"
-        return self.wrappresenter.submit(message,lockduration,clearafter)
+        return self.wrappresenter.submit(message,lockduration,clearafter,tag)
 
     def clear(self):
         """Clear the image."""

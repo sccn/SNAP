@@ -21,7 +21,7 @@ class MessagePresenter(object):
 
     # --- functions to be overridden by subclasses --- 
     
-    def _present(self,message):
+    def _present(self,message,tag=0):
         """Subclasses override this function to present the message."""    
         pass
     
@@ -32,7 +32,7 @@ class MessagePresenter(object):
 
     # --- user interface functions ---
     
-    def submit_wait(self,message,waiter,lockduration=None,clearafter=None,retryinterval=0.1):
+    def submit_wait(self,message,waiter,lockduration=None,clearafter=None,retryinterval=0.1,tag=0):
         """
         Submit a message to a presenter, optionally blocking until the presenter is available.
         * message: the message to be presented (usually a string tag)
@@ -41,10 +41,10 @@ class MessagePresenter(object):
         * clearafter: The presenter may optionally be cleared after some specific amount of time. 
         * retryinterval: interval, in seconds, at which to re-try submission        
         """
-        while not self.submit(message,lockduration,clearafter):
+        while not self.submit(message,lockduration,clearafter,tag=0):
             waiter.sleep(retryinterval)
 
-    def submit(self,message,lockduration=None,clearafter=None):
+    def submit(self,message,lockduration=None,clearafter=None,tag=0):
         """
         Try to submit a new message to the presenter.
         * message: the message string to present 
@@ -60,7 +60,7 @@ class MessagePresenter(object):
             if clearafter is None:
                 clearafter = self.clearafter
             self._locked_until = time.time()+lockduration
-            self._present(message)
+            self._present(message,tag)
             self.clear_after(clearafter)
             return True
         else:

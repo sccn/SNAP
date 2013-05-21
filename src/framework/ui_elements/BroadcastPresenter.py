@@ -13,11 +13,11 @@ class BroadcastPresenter(MessagePresenter):
         MessagePresenter.__init__(self,*args,**kwargs)
         self.presenters = presenters
 
-    def submit(self,message,lockduration=None,clearafter=None):
+    def submit(self,message,lockduration=None,clearafter=None,tag=0):
         """Submit a new message."""
         self.marker(220)
         for p in self.presenters:
-            p.submit(message,lockduration,clearafter)
+            p.submit(message,lockduration=lockduration,clearafter=clearafter,tag=tag)
         return True
         
 
