@@ -40,7 +40,7 @@ import random, time, threading, math, traceback, itertools
 
 
 # magic constants
-server_version = '0.3'      # displayed to the experimenter so he/she can keep track of versions
+server_version = '0.4'      # displayed to the experimenter so he/she can keep track of versions
 max_duration = 500000       # the maximum feasible duration (practically infinity)
 max_agents = 20             # maximum number of simultaneous AI-controlled agents
 screen_shuffle = [1,2,3]    # the order of the screen indices from left to right (for handedness switch or random permutation)
@@ -57,7 +57,7 @@ ispause = False             # whether we are currently in pause mode
 global experimenter_logger
 experimenter_logger = None
 def log_experimenter(msg):
-    """ Logging function for the experimenter. """
+    """ Logging function for the experimenter (shown on the experimenter's screen) """
     if experimenter_logger:
         experimenter_logger(time.strftime("%H:%M:%S", time.localtime()) + ": "  + msg)
 
@@ -81,7 +81,8 @@ def livecoding(fn):
             print "Exception " + str(e) + " in " + fn.__name__
             try:
                 send_marker('Experiment Control/Status/Error/%s' % (str(e),))
-                experimenter_logger("Game Error in %s: %s" % (fn.__name__,str(e)))
+                if experimenter_logger:
+                    experimenter_logger("Game Error in %s: %s" % (fn.__name__,str(e)))
             except:
                 pass
             try:
@@ -1374,10 +1375,10 @@ class StressTask(LatentModule):
                  high_stress_value = 4,                                 # the stress parameter value during high periods
                  low_transition_sound = 'birds.wav',                    # sound to play when transitioning to low stress
                  low_transition_icon = 'lowstress.png',                 # sound to play when transitioning to low stress
-                 low_transition_volume = 0.3,                           # volume of that sound
+                 low_transition_volume = 1,                             # volume of that sound
                  high_transition_sound = 'heartbeat.wav',               # sound to play when transitioning to high stress
                  high_transition_icon = 'highstress.png',               # sound to play when transitioning to high stress
-                 high_transition_volume = 0.3,                          # volume of that sound
+                 high_transition_volume = 1,                            # volume of that sound
                  stimpresenter = None,                                  # an instance of BasicStimuli to present the sound events                  
     ):
         LatentModule.__init__(self)
@@ -1424,7 +1425,7 @@ class StressTask(LatentModule):
                 continue
 
             # fade to red
-            rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume,sourcetype='ambient',location='surround',override_id=17)
+            rpyc.async(self.stimpresenter.sound)(filename = self.high_transition_sound, volume = self.high_transition_volume,sourcetype='point',location='surround',override_id=15)
             for t in range(0,10*self.color_transition_duration):
                 x = t/(10.0*self.color_transition_duration)
                 self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
@@ -1439,7 +1440,7 @@ class StressTask(LatentModule):
             self.sleep(duration)
 
             # fade to grey
-            rpyc.async(self.stimpresenter.sound)(filename = self.low_transition_sound, volume = self.low_transition_volume,sourcetype='ambient',location='surround',override_id=17)
+            rpyc.async(self.stimpresenter.sound)(filename = self.low_transition_sound, volume = self.low_transition_volume,sourcetype='point',location='surround',override_id=15)
             for t in range(0,10*self.color_transition_duration):
                 x = 1.0-(t/(10.0*self.color_transition_duration))
                 self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
@@ -1628,10 +1629,9 @@ class IndicatorLightTask(LatentModule):
             rpyc.async(self.stimpresenter.sound)(self.snd_false,location='array',**self.snd_params)
 
 
-
-class CommTask(LatentModule):
+class TextCommTask(LatentModule):
     """
-    Presents a sequence of distractor statements (audio or textual) from a corpus at semi-random intervals, including
+    Presents a sequence of distractor statements from a corpus at semi-random intervals, including
     messages addressed at other callsigns and random chatter. Periodically schedules situations that contain a
     high fraction of statements that are prefixed with the subject's callsign. A fraction of these statements have
     associated yes/no comprehension questions that demand a timely response from the subject.
@@ -1648,6 +1648,8 @@ class CommTask(LatentModule):
                  events,                                    # event names that encode yes, no, and skip (e.g., ['y','n','s'])
 
                  focused=True,                              # whether this object is in the user's focus
+                 scoredomain=None,                          # where the associated scores are presented
+                 querydomain=None,                          # where the associated queries are presented
 
                  # content control
                  command_file='sentences_with_answers.txt',  #source file containing a list of actionable commands (sentences and assoc. questions)
@@ -1676,15 +1678,11 @@ class CommTask(LatentModule):
                  loss_missed=-2,                            # amount of loss incurred when missing the question (and basically the sentence, too)
 
                  # bci features
-                 callback_delay=0.8,                        # query the BCI this many seconds after a "targeted/important" message was displayed 
+                 callback_delay=0.8,                        # query the BCI this many seconds after a "targeted/important" message was displayed
                  callback_func=None,                        # call this callback function to do it
 
                  # question counter
                  num_question=0,                            # the current question index from where we continue
-
-                 querydomain='auditory',                    # the domain in which queries should be issued
-                 scoredomain='auditory',                    # the domain in which the scores should be counted
-                 stimulusdomain = 'auditory'                # the domain in which stimuli appear (this is a HED domain)
     ):
 
         LatentModule.__init__(self)
@@ -1693,6 +1691,8 @@ class CommTask(LatentModule):
         self.client_idx = client_idx
         self.focused = focused
         self.targetsign = targetsign
+        self.scoredomain = scoredomain
+        self.querydomain = querydomain
 
         # timing parameters
         self.lull_time = lull_time
@@ -1717,9 +1717,6 @@ class CommTask(LatentModule):
         self.callback_delay = callback_delay
         self.callback_func = callback_func
 
-        self.querydomain = querydomain
-        self.scoredomain = scoredomain
-        self.stimulusdomain = stimulusdomain
         self.num_question = num_question
         self.callsign_file = callsign_file
         self.command_file = command_file
@@ -1732,7 +1729,6 @@ class CommTask(LatentModule):
         self.load_target_sentences()
         self.load_distractor_sentences()
         # some parameter post-processing
-        self.stimulusdomain.capitalize()
         if self.targetsign in self.callsigns:
             self.callsigns.remove(self.targetsign)
             # log all parameters to LSL
@@ -1815,12 +1811,12 @@ class CommTask(LatentModule):
                 # has no callsign
                 sentence = random.choice(self.distractors)
                 self.presenterfunc(sentence)
-                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
+                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
             else:
                 # for another callsign
                 sentence = self.substitute(random.choice(self.distractors),random.choice(self.callsigns))
                 self.presenterfunc(sentence)
-                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
+                self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
                 # wait for the message interval
             self.sleep(self.message_interval())
         self.marker('Experiment Control/Task/Comms/Lull Ends, Participant/ID/%i' % self.client_idx)
@@ -1844,12 +1840,12 @@ class CommTask(LatentModule):
                     # has no callsign
                     sentence = random.choice(self.distractors)
                     self.presenterfunc(sentence)
-                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
+                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/No Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
                 else:
                     # for another callsign
                     sentence = self.substitute(random.choice(self.distractors),random.choice(self.callsigns))
                     self.presenterfunc(sentence)
-                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
+                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Distractor/Other Callsign, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
                 self.sleep(self.message_interval())
             else:
                 # message for the current callsign
@@ -1857,21 +1853,21 @@ class CommTask(LatentModule):
                     # no question asked
                     sentence = self.substitute(random.choice(self.distractors),self.targetsign)
                     self.presenterfunc(sentence)
-                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
+                    self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
                     self.pause_after_message()
                 else:
                     if not self.focused or random.random() >= questioned_fraction:
                         # no question asked
                         sentence = self.substitute(random.choice(self.distractors),self.targetsign)
                         self.presenterfunc(sentence)
-                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % (self.stimulusdomain,sentence,self.client_idx))
+                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % ('Visual',sentence,self.client_idx))
                         self.pause_after_message()
                     else:
                         # first present the sentence; the marker is tagged with the query ID
                         sentence = self.substitute(self.sentences[self.num_question],self.targetsign)
                         self.presenterfunc(sentence)
                         query_id = next(_question_id_generator)
-                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i' % (self.stimulusdomain,sentence,query_id,self.client_idx))
+                        self.marker('Stimulus/%s/Language/Sentence/"%s", Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i' % ('Visual',sentence,query_id,self.client_idx))
                         self.pause_after_message()
                         # generate the query
                         question = StimulusQuestion(
@@ -1885,7 +1881,7 @@ class CommTask(LatentModule):
                         # issue it
                         self.querypresenter.submit_question(question,
                             querydomain = self.querydomain,
-                            scoredomain = self.scoredomain ,
+                            scoredomain = self.scoredomain,
                             lock_duration = self.lock_duration(),
                             response_timeout = self.response_timeout,
                             onset_delay = 0,
@@ -1915,6 +1911,270 @@ class CommTask(LatentModule):
         return command
 
 
+class SpeechCommTask(LatentModule):
+    """
+    Presents a sequence of distractor statements from a corpus at semi-random intervals, including
+    messages addressed at other callsigns and random chatter. Periodically schedules situations that contain a
+    high fraction of statements that are prefixed with the subject's callsign. A fraction of these statements have
+    associated yes/no comprehension questions that demand a timely response from the subject.
+
+    Includes optional support for online cognitive state assessment (bringing up an indicator hint).
+    """
+
+    def __init__(self,
+                 # output environment
+                 stimpresenter,                             # (possibly remote) BasicStimuli instance
+                 querypresenter,                            # the query presenter
+                 targetsign,                                # the subject's assigned callsign (if None, will be randomly selected)
+                 client_idx,                                # the subject id, e.g., for markers
+                 events,                                    # event names that encode yes, no, and skip (e.g., ['y','n','s'])
+
+                 focused=True,                              # whether this object is in the user's focus
+                 scoredomain=None,                          # where the associated scores are presented
+                 querydomain=None,                          # where the associated queries are presented
+
+                 # content control
+                 callsigns=['alpha','bravo','charlie','delta','echo','foxtrot'],    # subset of callsigns to use
+                 speakers=[1,2,3,4],                                                # valid speaker identifier
+                 statements=range(1,201),                                           # valid statement (and query) index
+                 distractors = None,                                                # ranges of valid distractor sentences per speaker...
+                 truthmapping = lambda id: id<=100,                                 # mapping that determines whether a statement is true
+                 sound_volume = 0.5,                                                # volume of the speech sounds
+                 voice_angles = [-0.9,0.9,-2.3,2.3],                                # angles at which voices can be presented (fixed mapping)
+
+                 # probabilities & timing control
+                 lull_time = lambda: random.uniform(10,20),                         # duration of lulls, in seconds (drawn per lull)
+                 situation_time = lambda: random.uniform(30,90),                    # duration of developing situations, in seconds (drawn per situation)
+                 clearafter = 4,                                                    # clear presenter this many seconds after message display
+                 message_interval = lambda: random.uniform(8,12),                   # message interval, in s (drawn per message) (was 12,30)
+                 other_callsign_fraction = lambda: random.uniform(0.4,0.5),       # fraction of messages that are for other callsigns (out of all messages presented) (drawn per situation)
+                 no_callsign_fraction = lambda: random.uniform(0.0,0.0),            # fraction, out of the messages for "other callsigns", of messages that have no callsign (drawn per situation)
+                 time_fraction_until_questions = lambda: random.uniform(0,0),       # the fraction of time into the situation until the first question comes up (drawn per situation)
+                 # in the tutorial mode, this should probably be close to zero
+                 questioned_fraction = lambda: random.uniform(0.65,0.8),             # fraction of targeted messages that incur questions
+                 post_timeout_silence = lambda: random.uniform(1,3),                # radio silence after a timeout of a question has expired (good idea or not?)
+
+                 # response control
+                 response_timeout = 6,                      # response timeout...
+                 lock_duration = lambda:random.uniform(7,9),# minimum/maximum duration for which the query presenter is locked
+                 loss_incorrect=-2,                         # amount of loss incurred when incorrectly answering
+                 gain_correct=2,                            # amount of reward gained when answering correctly
+                 loss_skipped=-1,                           # amount of loss incurred when admitting a miss
+                 loss_missed=-2,                            # amount of loss incurred when missing the question (and basically the sentence, too)
+
+                 # bci features
+                 callback_delay=0.8,                        # query the BCI this many seconds after a "targeted/important" message was displayed 
+                 callback_func=None,                        # call this callback function to do it
+
+                 # question counter
+                 num_question=0,                            # the current question index from where we continue
+    ):
+
+        LatentModule.__init__(self)
+        if distractors is None:
+            distractors = {1:range(1,155),2:range(310,466),3:range(466,619),4:range(155,310)}
+        self.stimpresenter = stimpresenter
+        self.querypresenter = querypresenter
+        self.client_idx = client_idx
+        self.focused = focused
+        self.targetsign = targetsign
+        self.scoredomain = scoredomain
+        self.querydomain = querydomain
+
+        # timing parameters
+        self.lull_time = lull_time
+        self.situation_time = situation_time
+        self.message_interval = message_interval
+        self.other_callsign_fraction = other_callsign_fraction
+        self.no_callsign_fraction = no_callsign_fraction
+        self.time_fraction_until_questions = time_fraction_until_questions
+        self.questioned_fraction = questioned_fraction
+        self.post_timeout_silence = post_timeout_silence
+
+        self.response_timeout = response_timeout
+        self.lock_duration = lock_duration
+        self.loss_incorrect=loss_incorrect
+        self.loss_missed=loss_missed
+        self.loss_skipped=loss_skipped
+        self.gain_correct=gain_correct
+
+        self.events = events
+        self.clearafter = clearafter
+
+        self.callback_delay = callback_delay
+        self.callback_func = callback_func
+
+        self.num_question = num_question
+        self.callsigns = callsigns
+        self.speakers = speakers
+        random.shuffle(statements)
+        self.statements = statements
+        random.shuffle(self.statements)
+        self.distractors = distractors
+        for s in self.speakers:
+            random.shuffle(self.distractors[s])
+        self.truthmapping = truthmapping
+        self.sound_volume = sound_volume
+        self.voice_angles = voice_angles
+        random.shuffle(voice_angles)
+
+    def run(self):
+        # some parameter post-processing
+        self.targetsign = self.targetsign.lower()
+        if self.targetsign in self.callsigns:
+            self.callsigns.remove(self.targetsign)
+        # log all parameters to LSL
+        self.log_setup_parameters()
+
+        self.sleep(self.message_interval())
+        while True:
+            # alternate between lull and action sequences
+            self.lull_sequence()
+            self.action_sequence()
+
+    # === scheduling functions ===
+
+    @livecoding
+    def pause_after_message(self):
+        """ Wait for the post-message interval, and optionally query a BCI response at the appropriate time. """
+        self.sleep(self.callback_delay)
+        if self.callback_func is not None:
+            self.callback_func()
+        self.sleep(self.message_interval()-self.callback_delay)
+
+    @livecoding
+    def lull_sequence(self):
+        # begin a lull sequence
+        self.marker('Experiment Control/Task/Comms/Lull Begins, Participant/ID/%i' % self.client_idx)
+        lull_duration = self.lull_time()
+        no_callsign_fraction = self.no_callsign_fraction()
+        t_end = time.time() + lull_duration
+        while time.time() < t_end:
+            # message for another callsign
+            if random.random() < no_callsign_fraction:
+                # has no callsign
+                self.play_random_distractor(callsign=None)
+            else:
+                # for another callsign
+                self.play_random_distractor(callsign=random.choice(self.callsigns))
+                # wait for the message interval
+            self.sleep(self.message_interval())
+        self.marker('Experiment Control/Task/Comms/Lull Ends, Participant/ID/%i' % self.client_idx)
+
+    @livecoding
+    def action_sequence(self):
+        # begin an action sequence
+        self.marker('Experiment Control/Task/Comms/Action Sequence Begins, Participant/ID/%i' % self.client_idx)
+        situation_time = self.situation_time()
+        t_end = time.time() + situation_time
+        other_callsign_fraction = self.other_callsign_fraction()
+        no_callsign_fraction = self.no_callsign_fraction()
+        time_fraction_until_questions = self.time_fraction_until_questions()
+        t_beginquestions = time.time() + situation_time * time_fraction_until_questions
+        questioned_fraction = self.questioned_fraction()
+
+        while time.time() < t_end:
+            if random.random() < other_callsign_fraction:
+                # message for another callsign
+                if random.random() < no_callsign_fraction:
+                    # has no callsign
+                    self.play_random_distractor(callsign=None)
+                else:
+                    # for another callsign
+                    self.play_random_distractor(callsign=random.choice(self.callsigns))
+                self.sleep(self.message_interval())
+            else:
+                # message for the current callsign
+                if time.time() < t_beginquestions:
+                    # no question asked
+                    self.play_utterance(speaker=random.choice(self.speakers),index=self.statements[self.num_question % len(self.statements)],type='statement',callsign=self.targetsign,query_id=None)
+                    self.pause_after_message()
+                else:
+                    if not self.focused or random.random() >= questioned_fraction:
+                        # no question asked
+                        self.play_utterance(speaker=random.choice(self.speakers),index=self.statements[self.num_question % len(self.statements)],type='statement',callsign=self.targetsign,query_id=None)
+                        self.pause_after_message()
+                    else:
+                        index = self.statements[self.num_question % len(self.statements)]
+                        istrue = self.truthmapping(index)
+                        # first present the sentence; the marker is tagged with the query ID
+                        first_speaker = random.choice(self.speakers)
+                        other_speaker = random.choice(list(set(self.speakers) - set([first_speaker])))
+                        query_id = next(_question_id_generator)
+                        self.play_utterance(speaker=first_speaker,index=index,type='statement',callsign=self.targetsign,query_id=query_id)
+                        self.pause_after_message()
+                        # generate the query
+                        question = StimulusQuestion(
+                            client_idx=self.client_idx,
+                            category='audiocomm',
+                            phrase=lambda:self.play_utterance(speaker=other_speaker,index=index,type='query',callsign=self.targetsign,query_id=query_id),
+                            correct_answer = 'yes' if istrue else 'no',
+                            all_answers = ['yes','no'],
+                            label = 'question #'+str(index),
+                            identifier = query_id)
+                        # issue it
+                        self.querypresenter.submit_question(question,
+                            querydomain = self.querydomain,
+                            scoredomain = self.scoredomain,
+                            lock_duration = self.lock_duration(),
+                            response_timeout = self.response_timeout,
+                            onset_delay = 0,
+                            loss_incorrect = self.loss_incorrect,
+                            gain_correct = self.gain_correct,
+                            loss_skipped = self.loss_skipped,
+                            loss_missed = self.loss_missed,
+                            no_queryprefix = True)
+                        # wait until we issue the next event...
+                        self.sleep(max(self.message_interval(),self.response_timeout+self.post_timeout_silence()))
+                    self.num_question += 1
+
+        self.marker('Experiment Control/Task/Comms/Action Sequence Ends, Participant/ID/%i' % self.client_idx)
+
+    @livecoding
+    def substitute(self,command,callsign):
+        """Substitute a callsign into a command."""
+        if command.find(' *')>0:
+            # placeholder not at the beginning
+            command.replace('*',callsign.lower())
+        elif command.find('*')>0:
+            # placeholder at the beginning
+            command.replace('*',callsign)
+        else:
+            # no placeholder, prepend callsign
+            command = callsign + '; ' + command
+        return command
+
+    @livecoding
+    def play_utterance(self,
+                       speaker,     # speaker, (as in: the person who is speaking) index (number)
+                       index,       # utterance index
+                       type,        # can either be 'statement', 'query', or 'distractor'
+                       callsign,    # callsign prefix, if any ('' for no callsign)
+                       query_id     # id of the question, if any
+    ):
+        """ Play an utterance over the speaker array. Also emit a marker. """
+        angle = self.voice_angles[speaker-1]
+        if callsign:
+            rpyc.async(self.stimpresenter.sound)("callsigns/s%i/%s.wav" % (speaker,callsign.lower()),direction=angle,volume=self.sound_volume,block=False,location='array')
+            # make sure that we block for the exact right duration here... (playing locally at volume 0)
+            self.sound("callsigns/s%i/%s.wav" % (speaker,callsign),direction=angle,volume=0,block=True,location='headset')
+        if type == 'distractor':
+            rpyc.async(self.stimpresenter.sound)("distractors/s%i/D%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array')
+            self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Distractor/%s, Participant/ID/%i' % (index,'No Callsign' if not callsign else 'Other Callsign',self.client_idx))
+        elif type == 'statement':
+            rpyc.async(self.stimpresenter.sound)("sentences/s%i/S%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array')
+            if query_id:
+                self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Target/Question/ID/%i, Participant/ID/%i' % (index,query_id,self.client_idx))
+            else:
+                self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Target/No Question, Participant/ID/%i' % (index,self.client_idx))
+        elif type == 'query':
+            rpyc.async(self.stimpresenter.sound)("sentences/s%i/Q%i.wav" % (speaker,index),direction=angle,volume=self.sound_volume,block=False,location='array')
+            self.marker('Stimulus/Auditory/Language/Sentence/%i, Experiment Control/Task/Comms/Probe/%i, Participant/ID/%i' % (index,query_id,self.client_idx))
+
+    @livecoding
+    def play_random_distractor(self,callsign):
+        speaker=random.choice(self.speakers)
+        self.play_utterance(speaker=speaker,index=random.choice(self.distractors[speaker]),type='distractor',callsign=callsign,query_id=None)
 
 class SatmapTask(BasicStimuli):
     """ 
@@ -2227,7 +2487,7 @@ class SoundTask(LatentModule):
                  sound_volume = 0.5,                            # volume modifier of the sounds
                  querydomain='auditory',                        # domain where the query shall be presented
                  scoredomain='auditory',                        # the domain in which the scores should be counted
-                 probe_sound='xWhoopFlp.wav',            # optionally a sound file in lieu of the question
+                 probe_sound='xWhoopFlp.wav',                   # optionally a sound file in lieu of the question
     ):
 
         LatentModule.__init__(self)
@@ -2277,7 +2537,7 @@ class SoundTask(LatentModule):
         # load things
         self.load_media()
         if not self.sound_directions:
-            self.sound_directions = {'front':0, 'left':-0.707, 'right':0.707, 'back':1.414}
+            self.sound_directions = {'front':0, 'left':-1.41, 'right':1.41, 'back':3.13}
         self.log_setup_parameters()
 
         while True:
@@ -2294,7 +2554,7 @@ class SoundTask(LatentModule):
             label = self.labels[soundidx]
 
             # pre-compute the associated question
-            question = StimulusQuestion(category="sound_direction", phrase=self.probe_sound if self.probe_sound else ("What was the direction of the last " + label + ' sound?'),
+            question = StimulusQuestion(category="sound_direction", phrase=lambda: rpyc.async(self.stimpresenter.sound)(self.probe_sound,volume=self.sound_volume,block=False,location='array'),
                 correct_answer=direction, all_answers=self.sound_directions.keys(),label=label, client_idx = self.client_idx)
 
             # emit the sound and onset marker
@@ -3566,10 +3826,6 @@ class ClientGame(SceneBase):
         # audio parameters
         self.vocal_communications_volume = 0.75             # volume of the vocal communication streams (was 0.55)
 
-        # ambience sound setup
-        self.ambience_sound = 'sounds\\nyc_amb2.wav'        # sound file of the background ambience loop
-        self.ambience_volume = 0.1                          # normalized volume of the ambience loop
-
         # overall button parameters
         self.button_framesize = (-1.5,1.5,-0.65*1.5+0.25,0.65*1.5+0.25) # size of the buttons (xmin,xmax,ymin,ymax)
         self.button_scale = 0.07*0.8                                    # scale of the buttons (scales the framesize, too)
@@ -3582,8 +3838,8 @@ class ClientGame(SceneBase):
         self.right_button_y_offsets = [grid(3,(),(9,10),ma=0.0125), grid(3,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
 
         # response buttons for the driving / object reporting and text comprehension tasks (left outer screen)
-        self.left_button_sides = ['left','center','right']                # labels for the street side buttons
-        self.left_button_yesno = ['yes','no','unclear']                   # labels for the yes/no buttons
+        self.left_button_sides = ['left','front','right']                # labels for the street side and sound direction buttons
+        self.left_button_yesno = ['yes','back','no']                     # labels for the yes/no buttons
         self.left_button_x_offsets = [grid(1,(2,5)),grid(1,(3,5)),grid(1,(4,5))] # x offsets for the buttons, in aspect2d coordinates
         self.left_button_y_offsets = [grid(1,(),(9,10),ma=0.0125),grid(1,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
 
@@ -3650,8 +3906,7 @@ class ClientGame(SceneBase):
                                                            }
         self.satmap_task_args = {}                          # arguments for the satellite map task
         self.sound_task_args = {# diable one of the channels # arguments for the sound task
-                                # 'sound_directions' : {'front':0, 'left':-0.707, 'back':1.414} if self.num == 0 else {'front':0, 'right':0.707, 'back':1.414}
-                                'sound_directions' : {'left':-1, 'center':0, 'right':1}
+                                'sound_directions' : {'left':-1.41, 'front':0, 'right':1.41, 'back':3.13}
         }
         self.attention_set_args = {}                        # arguments for the attention set management
 
@@ -3698,9 +3953,6 @@ class ClientGame(SceneBase):
         """
         Initialize the GUI elements that remain on screen for the whole experiment.
         """
-
-        # start city ambient sound
-        self.ambience = rpyc.async(self.remote_stimpresenter.sound)(self.ambience_sound,looping=True,volume=self.ambience_volume,direction=0,location='surround',sourcetype='ambient',override_id=16)
         # initialize camera and 3d viewport
         self.init_viewport()
         # initialize static GUI symbols (as stand-ins for the tasks)
@@ -3889,7 +4141,7 @@ class ClientGame(SceneBase):
             **self.warning_light_args))
 
         # textual communications task (answer yes/no comprehension questions about text feeds)
-        self.text_comm_task = self.launch(CommTask(
+        self.text_comm_task = self.launch(TextCommTask(
             presenterfunc = self.text_communications_presenter.submit,
             querypresenter = self.querypresenter,
             targetsign = self.id,
@@ -3898,12 +4150,11 @@ class ClientGame(SceneBase):
             focused = False,
             querydomain = 'visual-text',
             scoredomain = 'textcomm',
-            stimulusdomain = 'visual',
             **self.text_comm_task_args))
 
         # voice communications task (answer yes/no comprehension questions about audio statements)
-        self.audio_comm_task = self.launch(CommTask(
-            presenterfunc = self.vocal_communications_presenter.submit,
+        self.audio_comm_task = self.launch(SpeechCommTask(
+            stimpresenter = self.remote_stimpresenter,
             querypresenter = self.querypresenter,
             targetsign = self.id,
             client_idx = self.num,
@@ -3911,7 +4162,6 @@ class ClientGame(SceneBase):
             focused = False,
             querydomain = 'auditory',
             scoredomain = 'audiocomm',
-            stimulusdomain = 'auditory',
             **self.audio_comm_task_args))
 
         # satellite map task (answer questions about stimulus properties, e.g., color or shape) 
@@ -4201,9 +4451,15 @@ class Main(SceneBase):
         self.available_attention_set = ['spoken sentences','written sentences','sounds','curbside objects','satellite map icons']   # the permitted areas to which attention can be addressed
 
         # misc
-        self.alert_sound = 'SysAlert.wav'                # the alert that is played to warn off hostile agents
+        self.alert_sound = 'SysAlert.wav'                       # the alert that is played to warn off hostile agents
+        self.alert_volume = 0.4                                 # volume of the alert sound
         self.initial_experimenter_camera_pos = (-500,-500,500)  # initial 3d position of the experimenter's camera
         self.initial_experimenter_camera_target = (0,0,0)       # initial target (look-at) point of the experimenter's camera
+
+        # ambience sound setup
+        self.ambience_sound = '/Users/sccn/Desktop/Asset_Manager_v1.2.5/_common/Projects/SCCN/SCCN_Room_Surround/ambient_media/4channel_length1200sec.wav'  # sound file of the background ambience loop
+        #self.ambience_sound = '/Users/sccn/Desktop/Asset_Manager_v1.2.5/_common/Projects/SCCN/SCCN_Room_Surround/ambient_media/nyc_amb2.wav'  # sound file of the background ambience loop
+        self.ambience_volume = 0.5                          # normalized volume of the ambience loop
 
         # GUI parameters
         self.viewport_rect = (0.05, 0.45, 0.9, 0.1)             # viewport rect of the experimenter
@@ -4416,6 +4672,9 @@ class Main(SceneBase):
 
     def run(self):
         """ Top-level LSE experiment procedure. Called by SNAP. """
+
+        #for a in range(100):
+        #   self.sound
 
         # --- initialization ---
         self.marker('Experiment Control/Status/Loading')
@@ -4645,6 +4904,13 @@ class Main(SceneBase):
         """ Initialize the static world (city, terrain, skybox). """
         self.write("Initializing world...")
 
+        # start city ambient sound
+        self.sound(self.ambience_sound,looping=True,timeoffset=0.0,volume=1,direction=0,location='surround',sourcetype='ambient',override_id=16)
+        def play_ambient(task):
+            self.sound(self.ambience_sound,looping=True,timeoffset=0.0,volume=1,direction=0,location='surround',playerindex=2,sourcetype='ambient',override_id=16)
+            return task.done
+        taskMgr.doMethodLater(7,play_ambient,'Ambient Sound')
+
         # first load the static game world for everyone
         mapnum = random.choice(range(len(self.world_types)))
         self.create_static_world(self.world_types[mapnum],None if self.no_terrain else self.terrain_types[mapnum],None,False)
@@ -4698,7 +4964,7 @@ class Main(SceneBase):
     def init_subtasks(self):
         """ Initialize the per-client and global subtasks. """
         self.scorelog = open('logs\\LSE-scoretable-%s.log' % time.asctime().replace(':','_'),'a')
-        for cl in self.clients:
+        for cl in reversed(self.clients):
             cl.init_subtasks()
         self.init_global_subtasks()
         # also initialize the scores
@@ -5746,8 +6012,8 @@ class Main(SceneBase):
     @livecoding
     def on_pushtotalk(self,client):
         self.marker('Response/Button Press/Push To Talk')
-        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,location='headset',block=False)
-        rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,location='headset',block=False)
+        rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,location='array',block=False)
+        # rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,location='array',block=False)
 
     @livecoding
     def on_client_report(self,c):
@@ -5796,7 +6062,7 @@ class Main(SceneBase):
         """ Callback when a client has pressed the "warn off" button. """
         self.marker('Response/Button Press/Warn Agents')
         v = self.agents[idx]
-        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,location='surround',sourcetype='ambient')
+        rpyc.async(self.clients[idx].remote_stimpresenter.sound)(self.alert_sound,block=False,location='surround',sourcetype='point',volume=self.alert_volume)
         viewdir = v.getParent().getMat(self.city).getRow(1)
         num_warnedoff = 0
         num_alreadyretreating = 0
@@ -5853,7 +6119,7 @@ class Main(SceneBase):
                 if self.same_modality_repeats > self.max_same_modality_responses:
                     self.marker('Experiment Control/Too Many Repeats In Same Modality, Participant/ID/%i' % (cl_idx,))
                     log_experimenter("Subject%i got a slap (too many %s responses)" % (cl_idx,'spoken' if actual_speech else 'button'))
-                    self.clients[cl_idx].remote_stimpresenter.sound(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume,location='array')
+                    rpyc.async(self.clients[cl_idx].remote_stimpresenter.sound)(self.repeated_response_penalty_sound,volume=self.repeated_response_penalty_volume,location='array')
                     self.clients[cl_idx].overall_score.score_event(self.repeated_response_loss,nosound=True)
             else:
                 self.same_modality_repeats = 0

@@ -316,6 +316,13 @@ class LatentModule(framework.tickmodule.TickModule, framework.basicstimuli.Basic
         """
         Optionally release any large cached resources (e.g. textures) to make space for the next module.
         """
+        pass
+
+    def on_tick(self):
+        """
+        Callback function that is invoked at every frame.
+        """
+        pass
 
     # ==================================================
     # === Implementation of the TickModule interface ===
@@ -395,8 +402,11 @@ class LatentModule(framework.tickmodule.TickModule, framework.basicstimuli.Basic
             # send all queued messages
             for msg in self._messages:
                 messenger.send(msg)
-            self._messages = []            
-                        
+            self._messages = []
+
+            # invoke on_tick callback function
+            self.on_tick()
+
             # if we are closer to the frame at which we should resume than the one before, end the sleep period 
             if now > self._resumeat - self._frametime/2:
                 # time-consumption function may finish now

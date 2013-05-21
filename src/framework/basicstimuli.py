@@ -285,13 +285,13 @@ class BasicStimuli:
               looping=False,    # whether the sound should be looping; can be turned off by calling .stop() on the return value of this function
               loopcount=None,   # optionally the number of repeats if looping
               surround=False,   # if True, the direction will go from -Pi/2 to Pi/2
-              distance=1.0,
-              # parameters if playing through Peter Otto's Max/MSP asset manager
-              location='surround',  # can be 'surround' (wall speakers), 'array' (sound bars), or 'headset' (traditional Windows sound)
-              sourcetype='point',   # can be 'point' or 'ambient'
-              playerindex=None,     # can be 1, or 2, or None (in that case using default setting)
-              autostop=False,       # whether to issue an OSC stop command at end of track
-              override_id=None      # if this is not none, the sound will be assigned this ID
+              distance=0.3,
+              # extra parameters for the SCCN CES lab sound installation
+              location='surround',  # speaker group: can be 'surround' (wall speakers), 'array' (sound bars), or 'headset' (traditional Windows sound)
+              playerindex=None,     # player seat: can be 1, or 2, or None (in that case using default setting)
+              sourcetype='point',   # source type: can be 'point' (steerable mono sourece) or 'ambient' (pre-mixed)
+              autostop=False,       # whether to issue an OSC stop command at end of track (not necessary)
+              override_id=None      # if this is not None, override the source id in the asset manager (e.g., reserved slots for long-running sounds)
               ):
         """Play a sound in a particular location."""
         if self.extensive_markers:
@@ -301,9 +301,9 @@ class BasicStimuli:
         if playerindex is None:
             playerindex = self._oscplayer
 
-        #location = 'surround'  # override destination system (TODO: remove once all is working!)
         if self._oscclient is not None and (location=='surround' or location=='array'):
-            # play sound via Peter Otto's Max/MSP asset manager
+            # note: this is custom code for a special project in the SCCN CES lab
+
             oscclient = self._oscclient[location] # get the correct target machine IP based on playback location
             projectname = oscclient.projectname
 
@@ -318,15 +318,19 @@ class BasicStimuli:
             # transmit playback parameters
             destination = "/"+projectname+"/"+location+"/"+str(playerindex)+"/"+sourcetype
 
-            msg = OSCMessage(destination); msg += [id, "vol",volume]; oscclient.send(msg)
-            msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
-            msg = OSCMessage(destination); msg += [id, "pos",direction*180/3.1415,0.0,distance]; oscclient.send(msg)
-            msg = OSCMessage(destination); msg += [id, "speed",playrate]; oscclient.send(msg)
-
-            if timeoffset > 0:
-                print "Timeoffset is currently not supported in this interface"
-            if loopcount is not None:
-                print "Loopcount is currently not supported in this interface"
+            if sourcetype == 'point':
+                msg = OSCMessage(destination); msg += [id, "vol",volume]; oscclient.send(msg)
+                msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
+                msg = OSCMessage(destination); msg += [id, "pos",direction*180/3.1415,0.0,distance]; oscclient.send(msg)
+                msg = OSCMessage(destination); msg += [id, "speed",playrate]; oscclient.send(msg)
+            elif sourcetype == 'ambient':
+                msg = OSCMessage(destination); msg += [id, "looping", 1]; oscclient.send(msg)
+                msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
+                msg = OSCMessage(destination); msg += [id, "vol",float(volume)]; oscclient.send(msg)
+                msg = OSCMessage(destination); msg += [id, "play",0.0,1000 if looping else loopcount]; oscclient.send(msg)
+                #msg = OSCMessage(destination); msg += [id, "clipname", filename]; oscclient.send(msg)
+                #msg = OSCMessage(destination); msg += [id, "play"]; oscclient.send(msg)
+                return
 
             # determine the length of the file so we can block for the appropriate time (and later reclaim sound ID's)
             obj = loader.loadSfx(filename)
@@ -342,7 +346,7 @@ class BasicStimuli:
             if loopcount is None:
                 loopcount = 1
 
-            msg = OSCMessage(destination); msg += [id, "play",timeoffset,loopcount]; oscclient.send(msg)
+            msg = OSCMessage(destination); msg += [id, "play",timeoffset,0 if looping else loopcount]; oscclient.send(msg)
 
             # instantiate a stopper object
             class Stopper:
@@ -370,6 +374,7 @@ class BasicStimuli:
                 return Stopper(oscclient,id,destination,autostop)
 
         else:
+            # regular code path
             if surround:
                 if self.audio3d is None:
                     self.audio3d = self._engine.direct.showbase.Audio3DManager.Audio3DManager(self._engine.base.sfxManagerList[0],None)

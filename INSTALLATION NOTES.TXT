@@ -1,6 +1,3 @@
-Note for users of previous SNAP installations
-=============================================
-
 On WINDOWS
 ==========
 
@@ -78,6 +75,43 @@ On WINDOWS
    - once the indexing is completed (a one-time thing) you can select the configuration to 
      run in the pull-down bar next to the green play button (triangle) and then it the 
      play button. To debug your code, click the button with the bug. See documentation.
-	 
-     
-  
+
+
+On MacOS
+========
+
+1. Download the Panda3d 1.8.0 Installer for MacOS from:
+   http://www.panda3d.org/download.php?platform=macosx&version=1.8.0&sdk
+   and execute it.
+
+2. Download SNAP 1.02 (or later) from ftp://sccn.ucsd.edu/pub/SNAP/
+   and extract the archive.
+
+3. Run the file launcher.py (in the SNAP/src sub-directory) to launch SNAP. By default
+   this should bring up one of the basic sample experiments. Confirm that a window is
+   opened with grey background which displays some black text (etc.) in the center.
+
+   If you get no such window, try to open a Terminal window and cd into the SNAP/src
+   directory. Then enter:
+   python launcher.py
+
+   This should now bring up the window -- if not then most likely your default python
+   distribution on Mac does not coincide with the one to which Panda3d added its own packages
+   (perhaps your MacOS version is too new or you have a non-default Python distribution installed).
+   The best way to proceed is to find the Sample Programs that were installed with Panda
+   (see the www.panda3d.org documentation on where to find them if you can't seem to find them
+   in any obvious location) and to make sure that these programs run correctly (likely there is
+   a shortcut or shell script for each of them). Once you have confirmed that, start the launcher.py
+   in the same way as these sample programs are being started. To switch the experiment module that
+   is being loaded, see documentation in launcher.py and the file LEARNING SNAP.txt (which should be
+   your next file to read).
+
+4. Install a Python development environment of your liking. We recommend using PyCharm
+   (http://www.jetbrains.com/pycharm/download/index.html), which is a quite nice and simple IDE with
+   good debugging features. Once installed, you should be able to open the SNAP directory and run the
+   launcher. One of the neat features of PyCharm, if you're frequently switching between experiment
+   modules, is the "Run Configuration" pull-down menu in the toolbar -- this allows you to select and
+   define run configurations (i.e., run SNAP with a different experiment module, parameters, etc. than
+   default) quite easily. See the file LEARNING SNAP.txt and the documentation of the launcher.py and
+   to understand how SNAP is set up and what the parameters to launcher.py mean.
+

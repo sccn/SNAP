@@ -41,6 +41,10 @@ class Main(LatentModule):
         self.last_v = 0
         self.last_buttons = ()
 
+        self.frameindicator = None
+        self.current_frame = 0
+        self.frame_modulo = 16
+
     def run(self):
         moduleself = self
         
@@ -64,6 +68,9 @@ class Main(LatentModule):
         winprops = WindowProperties() 
         winprops.setTitle('LSE GameClient '+client_version + ' @' + str(self.client_port)) 
         base.win.requestProperties(winprops)
+
+        # create a frame indicator rectangle
+        self.frameindicator = self.rectangle((-1.71,-1.65,-0.95,-1),duration=1000000,block=False)
 
         # hook up key events
         base.buttonThrowers[0].node().setButtonDownEvent('buttonDown') 
@@ -97,9 +104,12 @@ class Main(LatentModule):
         # sleep forever, keeping the engine running in the background
         self.sleep(100000)
                 
-    def on_tick(self,dt):
-        time.sleep(0.025)
-        
+    def on_tick(self):
+        self.current_frame += 1
+        if self.frameindicator:
+            brightness = (self.current_frame % self.frame_modulo)/(self.frame_modulo - 1.0)
+            self.frameindicator.setColor(brightness,brightness,brightness,1)
+
     def on_keydown(self, keyname):
         self.marker('Response/Button Press/Keyboard/%s' % keyname)
         if self.callbacks_connected:

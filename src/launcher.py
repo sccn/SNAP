@@ -38,7 +38,7 @@ The SNAP experiment launcher program. To be run on the subject's PC.
 '''
 from __future__ import with_statement
 import optparse, sys, os, fnmatch, traceback, time
-from framework.OSC import OSCClient, OSCMessage
+from framework.OSC import OSCClient, OSCStreamingClient, OSCMessage
 
 SNAP_VERSION = '1.02'
 
@@ -100,10 +100,13 @@ COMPENSATE_LOST_TIME = True
 COM_PORT = 0
 
 # Whether to use OSC for sound playback
-OSC_SOUND = False
+OSC_SOUND = True
 
 # these are the IP addresses for the involved OSC machines
-OSC_MACHINE_IP =  {"array":"10.0.0.105", "surround":"10.0.0.108"} #{"array":"10.0.0.105"} #{"array":"10.0.0.105", "surround":"10.0.0.108"} # {"surround":"10.0.0.108"} # {"array":"10.0.0.105"} # {"array":"10.0.0.105", "surround":"10.0.0.106"}
+OSC_MACHINE_IP =  {"array":"10.0.0.105", "surround":"10.0.0.108"}
+
+# OSC sound volume
+OSC_VOLUME = -33.0
 
 
 # ------------------------------
@@ -148,6 +151,8 @@ parser.add_option("--comport", dest="comport", default=COM_PORT,
                   help="The COM port over which to send markers, or 0 if disabled.")
 parser.add_option("-x","--xoscsound", dest="oscsound", default=OSC_SOUND,
                   help="Use OSC for sound playback.")
+parser.add_option("-v","--volumeosc", dest="volumeosc", default=OSC_VOLUME,
+                  help="Override OSC volume.")
 parser.add_option("-i","--idosc", dest="idosc", default='0',
                   help="The OSC client ID (determines which sound ID range it gets).")
 (opts,args) = parser.parse_args()
@@ -200,7 +205,7 @@ if opts.noborder is not None:
 if opts.nomousecursor is not None:
     loadPrcFileData('', 'nomousecursor ' + opts.nomousecursor)
 
-# init OSC sound
+# init OSC sound (note: this is custom code for a special project in the SCCN CES lab)
 oscclient = None
 if opts.oscsound:
     print "Loading sound system..."
@@ -213,26 +218,35 @@ if opts.oscsound:
             oscclient[m] = OSCClient()
             # hack in some management for the assining numbers to sources...
             if opts.idosc == '0':
-                oscclient[m].idrange = [1,2,3,4,5]
+                oscclient[m].idrange = [1,2,3,5]
             elif opts.idosc == '1':
-                oscclient[m].idrange = [6,7,8,9,10]
+                oscclient[m].idrange = [6,7,8,9]
             elif opts.idosc == '2':
-                oscclient[m].idrange = [11,12,13,14,15]
+                oscclient[m].idrange = [10,11,13,14]
             else:
                 raise Exception("Unsupported OSC ID specified.")
+            #oscclient[m].idrange = range(1,16)
             oscclient[m].current_source = 0
             oscclient[m].projectname = 'SCCN'
             oscclient[m].connect((OSC_MACHINE_IP[m],15003))
             if opts.idosc == '1':
                 print "sending OSC master commands..."
-                msg = OSCMessage("/AM/Load"); msg.append("/"+oscclient[m].projectname); oscclient[m].send(msg)
+                msg = OSCMessage("/AM/Load"); msg += ["/"+oscclient[m].projectname]; oscclient[m].send(msg)
                 # wait a few seconds...
                 time.sleep(4)
                 # load the default preset
                 msg = OSCMessage("/"+oscclient[m].projectname+"/system"); msg += ["preset", 1]; oscclient[m].send(msg)
+                # set the volume to a reasonable default
+                msg = OSCMessage("/AM/Volume"); msg.append(float(opts.volumeosc)); oscclient[m].send(msg)
+                # stop any currently playing sources
+                msg = OSCMessage("/"+oscclient[m].projectname+"/surround/1/point"); msg += [0,"stop"]; oscclient[m].send(msg)
+                msg = OSCMessage("/"+oscclient[m].projectname+"/surround/2/point"); msg += [0,"stop"]; oscclient[m].send(msg)
+                msg = OSCMessage("/"+oscclient[m].projectname+"/array/1/point"); msg += [0,"stop"]; oscclient[m].send(msg)
+                msg = OSCMessage("/"+oscclient[m].projectname+"/array/2/point"); msg += [0,"stop"]; oscclient[m].send(msg)
             print "success."
         except Exception, e:
-            print "failed:" + e
+            print "failed:", e
+            traceback.print_exc()
 
 global is_running
 is_running = True
