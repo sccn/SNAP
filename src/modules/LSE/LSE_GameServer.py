@@ -800,7 +800,7 @@ class ScoreCounter(BasicStimuli):
         if not nosound:
             self.play_delta_sounds(delta)
         # reset the riser
-        if self.enable_risers:
+        if self.enable_risers and delta:
             self.riser_delta = delta
             self.riser.setText(str(delta) if delta < 0 else ('+' + str(delta)))
             self.riser_period_start = time.time()
@@ -2572,7 +2572,7 @@ class SoundTask(LatentModule):
         # load things
         self.load_media()
         if not self.sound_directions:
-            self.sound_directions = {'front':0, 'left':-1.41, 'right':1.41, 'back':3.13}
+            self.sound_directions = {'front':0, 'left':-0.78, 'right':0.78, 'back':3.13}
         self.log_setup_parameters()
 
         while True:
