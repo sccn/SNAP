@@ -35,7 +35,7 @@ def create_worldspace_gizmo(
 def destroy_worldspace_gizmo(gizmo,tag=0):
     print "Destroying gizmo:", gizmo
     gizmo.destroy()
-    send_marker('Experiment Control/Synchronization/Tag/%s' % tag)
+    send_marker('Stimulus/Offset, Experiment Control/Synchronization/Tag/%s' % tag)
 
 
 def create_worldspace_instance(model=None,position=(0,0,0),color=(1,1,1,0.75),scale=1.0,hpr=(0,0,0),parent=None,name='WorldspaceInstance',tag=0):
@@ -53,7 +53,7 @@ def create_worldspace_instance(model=None,position=(0,0,0),color=(1,1,1,0.75),sc
 def destroy_worldspace_instance(inst,tag=0):
     print "Destroying instance:", inst
     inst.removeNode()
-    send_marker('Experiment Control/Synchronization/Tag/%s' % tag)
+    send_marker('Stimulus/Offset, Experiment Control/Synchronization/Tag/%s' % tag)
 
 def flash_objects(objects,                          # tuple or list of objects to flash
                   flash_color = (1,1,1,1),          # color while flashing

@@ -1444,7 +1444,6 @@ class StressTask(LatentModule):
                 x = t/(10.0*self.color_transition_duration)
                 self.setcolor((0.3+smoothstep(x)*0.1,0.3-smoothstep(x)*0.3, 0.3-smoothstep(x)*0.3, 1))
                 self.sleep(0.1)
-
             # enter a high stress period
             log_experimenter('(Subject%i: now in high stress period)' % self.client_idx)
             self.iconpresenterfunc(self.high_transition_icon)
@@ -2360,13 +2359,13 @@ class SatmapTask(BasicStimuli):
                         print time.time(), ": Got an async timeout result while trying to delete a satmap item:", e
 
                     # stimulus offset marker
-                    self.marker('Experiment Control/Task/Satellite Map/Remove Icon/{identifier:%i|label:%s}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s'% (self.current_questions[idx].identifier, self.current_questions[idx].label, self.client_idx,tag))
+                    self.marker('Experiment Control/Task/Satellite Map/Remove Icon/{identifier:%i|label:%s}, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s'% (self.current_questions[idx].identifier, self.current_questions[idx].label, self.client_idx, tag))
 
                     if self.focused and (random.random() > self.distractor_fraction):
                         delay = self.onset_delay()
                         question = self.current_questions[idx]
                         if self.use_buttonflash:
-                            question.phrase = lambda:self.flash_button_bar(question.category,None)
+                            question.phrase = lambda tag:self.flash_button_bar(question.category,None,tag)
 
                         # present the associated query
                         self.querypresenter.submit_question(
@@ -2478,14 +2477,14 @@ class SatmapTask(BasicStimuli):
             self.previous_label = label
 
     #noinspection PyUnusedLocal
-    def flash_button_bar(self,category,task):
+    def flash_button_bar(self,category,task,tag):
         """ Flash one of the two button bars depending on the question category. """
         self.button_flasher(
             objects=self.buttonbar_color if category == "color" else self.buttonbar_direction,
             flash_color=self.buttonbar_flash_color,
             normal_color=self.buttonbar_normal_color,
             duration=self.buttonbar_flash_duration,
-            property_name='frameColor')
+            property_name='frameColor',tag=tag)
 
 
 
@@ -2572,7 +2571,7 @@ class SoundTask(LatentModule):
         # load things
         self.load_media()
         if not self.sound_directions:
-            self.sound_directions = {'front':0, 'left':-0.78, 'right':0.78, 'back':3.13}
+            self.sound_directions = {'left':-0.78, 'right':0.78, 'back':3.13}
         self.log_setup_parameters()
 
         while True:
@@ -3882,8 +3881,8 @@ class ClientGame(SceneBase):
         self.right_button_y_offsets = [grid(3,(),(9,10),ma=0.0125), grid(3,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
 
         # response buttons for the driving / object reporting and text comprehension tasks (left outer screen)
-        self.left_button_sides = ['left','front','right']                # labels for the street side and sound direction buttons
-        self.left_button_yesno = ['yes','back','no']                     # labels for the yes/no buttons
+        self.left_button_sides = ['left','back','right']                   # labels for the street side and sound direction buttons
+        self.left_button_yesno = ['yes','no','unclear']                    # labels for the yes/no buttons
         self.left_button_x_offsets = [grid(1,(2,5)),grid(1,(3,5)),grid(1,(4,5))] # x offsets for the buttons, in aspect2d coordinates
         self.left_button_y_offsets = [grid(1,(),(9,10),ma=0.0125),grid(1,(),(10,10),ma=0.0125)] # y offssetss for the two rows of buttons, in aspect2d coordinate
 
@@ -3950,7 +3949,7 @@ class ClientGame(SceneBase):
                                                            }
         self.satmap_task_args = {}                          # arguments for the satellite map task
         self.sound_task_args = {# diable one of the channels # arguments for the sound task
-                                'sound_directions' : {'left':-1.41, 'front':0, 'right':1.41, 'back':3.13}
+                                'sound_directions' : {'left':-1.41, 'right':1.41, 'back':3.13}
         }
         self.attention_set_args = {}                        # arguments for the attention set management
 
@@ -4726,10 +4725,10 @@ class Main(SceneBase):
         self.log_setup_parameters()
         # initialize window properties
         self.init_window()
-        # try to connect to the clients
-        self.init_connection()
         # generate the permutation of blocks to use throughout the experiment
         self.init_block_permutation(self.permutation)
+        # try to connect to the clients
+        self.init_connection()
         # initialize the world (static environment and special objects)
         self.init_static_world()
         # create the player-controlled agents
@@ -4827,6 +4826,10 @@ class Main(SceneBase):
                                       ('indiv-watch/drive','indiv-drive/watch'),('indiv-watch/pan','indiv-pan/watch'),('indiv-watch/pan','indiv-drive/watch'),('indiv-watch/drive','indiv-pan/watch'),
                                       ('indiv-pan/watch','indiv-watch/pan'),('indiv-drive/watch','indiv-watch/drive'),('indiv-drive/watch','indiv-watch/pan'),('indiv-pan/watch','indiv-watch/drive'),
                                       ('indiv-drive/watch','indiv-watch/drive'),('indiv-pan/watch','indiv-watch/pan'),('indiv-pan/watch','indiv-watch/drive'),('indiv-drive/watch','indiv-watch/pan')])
+                # if the picked mission is not in the list (was dropped to reach desired # of missions): retry
+                if (case[0] not in self.mission_order) or (case[1] not in self.mission_order):
+                    okay = False
+                    continue
                 # remove the two first ocurrences of these missions and the insert at the beginning
                 self.mission_order.remove(case[0])
                 self.mission_order.remove(case[1])
@@ -5077,7 +5080,7 @@ class Main(SceneBase):
                 self.play_coop_aerialguide(['aerial','vehicle'])
             elif missiontype == 'coop-vehicle/aerial':
                 self.play_coop_aerialguide(['vehicle','aerial'])
-            elif missiontype == 'coop-secureperimeter':
+            elif missiontype   == 'coop-secureperimeter':
                 self.play_secureperimeter()
             elif missiontype == 'indiv-freeroam':
                 self.play_freeroam()
@@ -5508,8 +5511,8 @@ class Main(SceneBase):
                             a_pos,v.getPos(self.city),a.vel,Vec3(viewdir.getX(),viewdir.getY(),viewdir.getZ()),
                             src_fov=self.hostile_field_of_view,dst_fov=self.friendly_field_of_view) == "behind":
                             self.marker('Experiment Control/Task/Hint/Spotted From Behind')
-                            self.clients[k].viewport_instructions.submit(self.clients[k].id + ', your robot was spotted from behind!')
-                            self.clients[1-k].viewport_instructions.submit(self.clients[1-k].id + ', your partner''s robot was spotted from behind!')
+                            self.clients[k].viewport_instructions.submit(self.clients[k].id + ', you were spotted from behind!')
+                            self.clients[1-k].viewport_instructions.submit(self.clients[1-k].id + ', your partner was spotted from behind!')
                             self.update_score_both(self.unfortunate_spotting_penalty)
                             self.sleep(3)
 
@@ -6060,7 +6063,7 @@ class Main(SceneBase):
     @livecoding
     def on_pushtotalk(self,client):
         tag = next(_event_tag_generator)
-        self.marker('Response/Button Press/Push To Talk, Experiment Control/Synchronization/Tag/%s' % tag)
+        self.marker('Response/Button Press/Push To Talk, Participant/ID/%i, Experiment Control/Synchronization/Tag/%s' % (client,tag))
         rpyc.async(self.clients[client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_own_volume,location='array',block=False,tag=tag)
         # rpyc.async(self.clients[1-client].remote_stimpresenter.sound)(self.pushtotalk_sound,volume=self.pushtotalk_other_volume,location='array',block=False)
 
@@ -6135,9 +6138,9 @@ class Main(SceneBase):
             self.clients[idx].viewport_instructions.submit(self.clients[idx].id + ', you have successfully warned off an agent!',tag=tag)
         elif num_alreadyretreating > 0:
             # note: this message is only issued when there's not already at least one agent who was successfully warned off
-            self.clients[idx].viewport_instructions.submit('This agent is already retreating.',tag=tag)
+            self.clients[idx].viewport_instructions.submit('This drone is already retreating.',tag=tag)
         else:
-            self.clients[idx].viewport_instructions.submit('There is no agent.',tag=tag)
+            self.clients[idx].viewport_instructions.submit('There is no drone.',tag=tag)
 
     @livecoding
     def on_client_speech(self,

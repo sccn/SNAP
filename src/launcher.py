@@ -108,6 +108,9 @@ OSC_MACHINE_IP =  {"array":"10.0.0.105", "surround":"10.0.0.108"}
 # OSC sound volume
 OSC_VOLUME = -33.0
 
+# whether OSC should use TCP
+OSC_USE_TCP = False
+
 
 # ------------------------------
 # --- Startup Initialization ---
@@ -215,7 +218,10 @@ if opts.oscsound:
         # connect to each of them
         print "Connecting to", m, "(" + OSC_MACHINE_IP[m] + ")..."
         try:
-            oscclient[m] = OSCClient()
+            if OSC_USE_TCP:
+                oscclient[m] = OSCStreamingClient()
+            else:
+                oscclient[m] = OSCClient()
             # hack in some management for the assining numbers to sources...
             if opts.idosc == '0':
                 oscclient[m].idrange = [1,2,3,5]
@@ -228,7 +234,10 @@ if opts.oscsound:
             #oscclient[m].idrange = range(1,16)
             oscclient[m].current_source = 0
             oscclient[m].projectname = 'SCCN'
-            oscclient[m].connect((OSC_MACHINE_IP[m],15003))
+            if OSC_USE_TCP:
+                oscclient[m].connect((OSC_MACHINE_IP[m],15002))
+            else:
+                oscclient[m].connect((OSC_MACHINE_IP[m],15003))
             if opts.idosc == '1':
                 print "sending OSC master commands..."
                 msg = OSCMessage("/AM/Load"); msg += ["/"+oscclient[m].projectname]; oscclient[m].send(msg)
